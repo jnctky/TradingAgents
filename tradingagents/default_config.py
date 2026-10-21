@@ -156,12 +156,15 @@ def build_default_config() -> dict:
         # routed to vendors you didn't choose. For ordered fallback, list several,
         # e.g. "yfinance,alpha_vantage". "default" uses all available vendors.
         "data_vendors": {
-            "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
-            "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
-            # Statements come from SEC EDGAR as filed (US filers), then Yahoo; the
-        # overview and insider tools, which SEC EDGAR does not serve, from Yahoo.
-        "fundamental_data": "sec_edgar,yfinance",  # Options: sec_edgar, alpha_vantage, yfinance
-            "news_data": "yfinance",             # Options: alpha_vantage, yfinance
+            # openbb = local OpenBB Platform (127.0.0.1:6900, nasdaq provider);
+            # yfinance stays as the ordered fallback when the platform is down.
+            "core_stock_apis": "openbb,yfinance",       # Options: openbb, alpha_vantage, yfinance
+            "technical_indicators": "openbb,yfinance",  # Options: openbb, alpha_vantage, yfinance
+            # Statements come from OpenBB first (as-reported from nasdaq), then
+            # SEC EDGAR and Yahoo; the overview and insider tools likewise from
+            # OpenBB, then Yahoo.
+            "fundamental_data": "openbb,sec_edgar,yfinance",  # Options: openbb, sec_edgar, alpha_vantage, yfinance
+            "news_data": "openbb,yfinance",      # Options: openbb, alpha_vantage, yfinance
             "macro_data": "fred",                # Options: fred (needs FRED_API_KEY)
             "prediction_markets": "polymarket",  # Options: polymarket (keyless)
         },
