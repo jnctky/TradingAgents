@@ -156,6 +156,14 @@ class MinimaxChatOpenAI(NormalizedChatOpenAI):
 
     def _get_request_payload(self, input_, *, stop=None, **kwargs):
         payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+        # MiniMax only honors `max_tokens`. The openai SDK renames the
+        # configured cap to `max_completion_tokens`, which MiniMax silently
+        # ignores — reasoning models then run unbounded and hang the run
+        # (local test 2026-10-21: max_completion_tokens=64 produced 523
+        # tokens; same payload with `max_tokens` caps correctly).
+        cap = payload.pop("max_completion_tokens", None)
+        if cap is not None:
+            payload.setdefault("max_tokens", cap)
         if get_capabilities(self.model_name).requires_reasoning_split:
             # Pass via extra_body, not as a top-level kwarg: the openai SDK
             # (>=1.56) validates top-level params against Completions.create

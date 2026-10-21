@@ -38,6 +38,26 @@ NO_EXTERNAL_TOOLS = (
     "or search the web; if something is missing, say so explicitly."
 )
 
+# Providers that cannot force a tool call (MiniMax M-series restrict
+# ``tool_choice`` to {"none", "auto"}; local test 2026-10-21: with the schema
+# bound as a tool but no instruction, M3 answered in plain text and the
+# structured parse got nothing). The directive makes the model invoke the
+# bound tool. Appended to the structured attempt only — the free-text
+# fallback keeps the original prompt untouched.
+_TOOL_CALL_DIRECTIVE = (
+    "\n\n## Structured output requirement (mandatory)\n"
+    "Deliver your result by invoking the function tool bound to this request, "
+    "with every required field filled in. Do not answer in plain text: for "
+    "this step the tool call itself is the only accepted output."
+)
+
+
+def _with_tool_directive(prompt: Any) -> Any:
+    """Append the tool-call directive to string prompts (structured call only)."""
+    if isinstance(prompt, str):
+        return prompt + _TOOL_CALL_DIRECTIVE
+    return prompt
+
 
 def bind_structured(llm: Any, schema: type[T], agent_name: str) -> Any | None:
     """Return ``llm.with_structured_output(schema)`` or ``None`` if unsupported.
@@ -66,7 +86,7 @@ def invoke_structured(structured_llm: Any | None, prompt: Any, agent_name: str) 
     if structured_llm is None:
         return None
     try:
-        result = structured_llm.invoke(prompt)
+        result = structured_llm.invoke(_with_tool_directive(prompt))
         if result is None:
             # A thinking model can answer in plain text instead of calling
             # the tool, leaving the parser with nothing to return. Treat it
