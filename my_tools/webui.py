@@ -76,11 +76,13 @@ def _msg_text(message) -> str:
 
 @st.cache_resource(show_spinner="初始化智能体图…")
 def build_graph(selected_analysts: tuple, deep_llm: str, quick_llm: str,
-                data_vendors: dict | None = None):
+                data_vendors: dict | None = None,
+                global_news_proxies: tuple = ()):
     """构造 TradingAgentsGraph；参数变化时重建。
 
     ``data_vendors`` 为 None 时使用项目默认链（openbb 优先）；传入覆盖字典可
-    切回纯 yfinance 等旧行为。
+    切回纯 yfinance 等旧行为。``global_news_proxies`` 为空时沿用默认宏观
+    新闻代理篮子（SPY/QQQ/DIA/TLT/GLD/USO/UUP）。
     """
     from tradingagents.default_config import DEFAULT_CONFIG
     from tradingagents.graph.trading_graph import TradingAgentsGraph
@@ -90,6 +92,8 @@ def build_graph(selected_analysts: tuple, deep_llm: str, quick_llm: str,
     config["quick_think_llm"] = quick_llm
     if data_vendors:
         config["data_vendors"] = data_vendors
+    if global_news_proxies:
+        config["global_news_proxy_symbols"] = list(global_news_proxies)
     return TradingAgentsGraph(selected_analysts=selected_analysts, config=config, debug=False)
 
 
@@ -126,18 +130,21 @@ VENDOR_CHAINS = {
         "technical_indicators": "openbb,yfinance",
         "fundamental_data": "openbb,sec_edgar,yfinance",
         "news_data": "openbb,yfinance",
+        "macro_data": "openbb,fred",
     },
     "仅 Yahoo Finance（旧行为）": {
         "core_stock_apis": "yfinance",
         "technical_indicators": "yfinance",
         "fundamental_data": "sec_edgar,yfinance",
         "news_data": "yfinance",
+        "macro_data": "fred",
     },
     "alpha_vantage 优先": {
         "core_stock_apis": "alpha_vantage,yfinance",
         "technical_indicators": "alpha_vantage,yfinance",
         "fundamental_data": "alpha_vantage,sec_edgar,yfinance",
         "news_data": "alpha_vantage,yfinance",
+        "macro_data": "fred",
     },
 }
 
@@ -172,6 +179,17 @@ if page == "🚀 新建分析":
              "选择「仅 Yahoo」可完全恢复旧行为",
     )
 
+    from tradingagents.default_config import DEFAULT_CONFIG as _DEFAULT_CFG
+    _default_proxies = ",".join(_DEFAULT_CFG.get("global_news_proxy_symbols") or ())
+    proxies_raw = st.text_input(
+        "宏观新闻代理标的（OpenBB 全局新闻）",
+        value=_default_proxies,
+        disabled=VENDOR_CHAINS[vendor_choice]["news_data"].startswith("yfinance"),
+        help="本地 OpenBB 平台没有独立的「全球新闻」路由，get_global_news 改用这些"
+             "市场级标的的新闻页拼出宏观面（指数 + 利率/黄金/原油/美元）。"
+             "留空则用默认篮子；选「仅 Yahoo」时该功能不生效，仍走 yfinance 搜索。",
+    )
+
     save_report = st.checkbox("跑完保存报告（含 HTML 版）", value=True)
     auto_open = st.checkbox("跑完自动在浏览器打开 HTML 报告", value=False)
 
@@ -183,12 +201,17 @@ if page == "🚀 新建分析":
             st.error("至少选择一名分析师")
             st.stop()
         ticker = ticker.strip().upper()
+        proxies = tuple(
+            s.strip().upper() for s in proxies_raw.replace("，", ",").split(",") if s.strip()
+        )
         graph = build_graph(tuple(chosen), deep_llm.strip(), quick_llm.strip(),
-                            dict(VENDOR_CHAINS[vendor_choice]))
+                            dict(VENDOR_CHAINS[vendor_choice]), proxies)
 
         st.info(f"开始分析 **{ticker}** @ {date} · 分析师：{', '.join(ANALYSTS[a] for a in chosen)}\n\n"
-                f"数据源：{vendor_choice}\n\n"
-                f"⏱️ 真实行情全流程约 10-20 分钟，请勿关闭页面")
+                f"数据源：{vendor_choice}"
+                + (f" · 宏观新闻代理：{', '.join(proxies)}" if proxies and not
+                   VENDOR_CHAINS[vendor_choice]["news_data"].startswith("yfinance") else "")
+                + "\n\n⏱️ 真实行情全流程约 10-20 分钟，请勿关闭页面")
         status_box = st.empty()
         log_box = st.empty()
         t0 = time.time()

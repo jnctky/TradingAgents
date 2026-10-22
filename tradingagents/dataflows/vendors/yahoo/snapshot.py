@@ -17,7 +17,7 @@ from stockstats import wrap
 
 from tradingagents.dataflows.errors import NoMarketDataError
 from tradingagents.dataflows.symbols import normalize_symbol
-from tradingagents.dataflows.vendors.yahoo.ohlcv import load_ohlcv
+from tradingagents.dataflows.vendors.ohlcv import load_ohlcv
 
 # A fixed, common indicator set so the snapshot is the same shape every run.
 DEFAULT_SNAPSHOT_INDICATORS: tuple[str, ...] = (
@@ -104,6 +104,17 @@ def build_verified_market_snapshot(
     ]
     for field in ("Open", "High", "Low", "Close", "Volume"):
         lines.append(f"| {field} | {_fmt(latest.get(field))} |")
+
+    # Independent second source for the same numbers: the platform's live quote
+    # (last/prev close, 52w range, volume vs average, market cap, price target).
+    # Imported lazily so a yahoo-only install never needs the OpenBB vendor, and
+    # skipped automatically for historical dates (a live quote would be look-ahead).
+    try:
+        from tradingagents.dataflows.vendors.openbb.quote import build_quote_crosscheck
+    except Exception:  # noqa: BLE001 — no platform client, keep the core snapshot
+        build_quote_crosscheck = None
+    if build_quote_crosscheck is not None:
+        lines += ["", build_quote_crosscheck(symbol, as_of_date, latest.get("Close"))]
 
     lines += ["", "### Verified technical indicators (latest row)", "",
               "| Indicator | Value |", "|---|---:|"]

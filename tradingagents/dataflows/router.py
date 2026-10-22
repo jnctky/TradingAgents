@@ -32,6 +32,8 @@ from tradingagents.dataflows.vendors.openbb import (
     get_fundamentals as get_openbb_fundamentals,
     get_income_statement as get_openbb_income_statement,
     get_insider_transactions as get_openbb_insider_transactions,
+    get_global_news_openbb as get_openbb_global_news,
+    get_macro_data as get_openbb_macro,
     get_news_openbb as get_openbb_news,
     get_stock_data as get_openbb_stock,
     get_stock_stats_indicators_window as get_openbb_indicator,
@@ -148,6 +150,7 @@ VENDOR_METHODS = {
         "yfinance": get_news_yfinance,
     },
     "get_global_news": {
+        "openbb": get_openbb_global_news,
         "yfinance": get_global_news_yfinance,
         "alpha_vantage": get_alpha_vantage_global_news,
     },
@@ -158,6 +161,7 @@ VENDOR_METHODS = {
     },
     # macro_data
     "get_macro_indicators": {
+        "openbb": get_openbb_macro,
         "fred": get_fred_macro_data,
     },
     # prediction_markets

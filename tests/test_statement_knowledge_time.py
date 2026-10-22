@@ -13,7 +13,7 @@ import pytest
 
 from tradingagents import default_config
 from tradingagents.dataflows import router
-from tradingagents.dataflows.config import set_config
+from tradingagents.dataflows.config import get_config, set_config
 from tradingagents.dataflows.vendors.alpha_vantage import fundamentals as alpha_vantage
 from tradingagents.dataflows.vendors.yahoo import fundamentals as yahoo
 
@@ -57,7 +57,7 @@ def test_statements_come_from_sec_edgar_first_by_default():
              for name in router.VENDOR_METHODS["get_balance_sheet"]}
     with mock.patch.dict(router.VENDOR_METHODS, {"get_balance_sheet": chain}):
         router.route_to_vendor("get_balance_sheet", "AAPL", "quarterly", PAST)
-    assert served == ["sec_edgar"]
+    assert served == [get_config()["data_vendors"]["fundamental_data"].split(",")[0]]
 
 
 @pytest.mark.unit

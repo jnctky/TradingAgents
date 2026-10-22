@@ -4,52 +4,12 @@ import logging
 from datetime import datetime, timedelta
 from typing import Annotated
 
-import pandas as pd
-
-from tradingagents.dataflows.errors import NoMarketDataError, VendorUnavailableError
+from tradingagents.dataflows.errors import VendorUnavailableError
 
 from .client import PROVIDER, assert_rows, get_json
+from .ohlcv import fetch_ohlcv as _ohlcv
 
 logger = logging.getLogger(__name__)
-
-
-def _ohlcv(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
-    """Daily OHLCV rows from the local platform as a yfinance-shaped frame."""
-    rows = get_json(
-        "/api/v1/equity/price/historical",
-        f"{symbol} OHLCV",
-        params={
-            "symbol": symbol,
-            "provider": PROVIDER,
-            "start_date": start_date,
-            "end_date": end_date,
-        },
-    )
-    assert_rows(symbol, rows, f"OHLCV rows between {start_date} and {end_date}")
-
-    data = pd.DataFrame(rows)
-    data["date"] = pd.to_datetime(data["date"]).dt.tz_localize(None)
-    data = data.set_index("date").sort_index()
-    # nasdaq rows carry adjusted prices already; expose the yfinance column set.
-    data["Adj Close"] = data["close"]
-    data = data.rename(
-        columns={"open": "Open", "high": "High", "low": "Low",
-                 "close": "Close", "volume": "Volume"}
-    )
-    keep = [c for c in ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
-            if c in data.columns]
-    data = data[keep].round(2)
-
-    # Staleness guard, mirroring the yahoo vendor: the latest row must sit
-    # near the requested end date, otherwise the answer would be silently old.
-    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-    last = data.index.max()
-    if last < pd.Timestamp(end_dt) - pd.Timedelta(days=10):
-        raise NoMarketDataError(
-            symbol, detail=f"latest row is {last.date():%Y-%m-%d}, "
-            f"more than 10 days behind the requested end {end_date}"
-        )
-    return data
 
 
 def get_stock_data(

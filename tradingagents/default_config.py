@@ -150,6 +150,15 @@ def build_default_config() -> dict:
             "ECB Bank of England BOJ central bank policy",
             "oil commodities supply chain energy",
         ],
+        # Market-wide tickers whose news pages stand in for a global/macro feed
+        # when the OpenBB vendor serves get_global_news (the platform has no
+        # world-news route). Broad index ETFs first, then cross-asset lenses:
+        # Treasuries, gold, crude, the dollar.
+        "global_news_proxy_symbols": [
+            "SPY", "QQQ", "DIA", "TLT", "GLD", "USO", "UUP",
+        ],
+        # Trailing window for get_macro_indicators when the caller omits one.
+        "macro_lookback_days": 365,
         # Data vendor configuration
         # Category-level configuration (default for all tools in category).
         # The configured value is the exact vendor chain — requests are NOT silently
@@ -165,7 +174,10 @@ def build_default_config() -> dict:
             # OpenBB, then Yahoo.
             "fundamental_data": "openbb,sec_edgar,yfinance",  # Options: openbb, sec_edgar, alpha_vantage, yfinance
             "news_data": "openbb,yfinance",      # Options: openbb, alpha_vantage, yfinance
-            "macro_data": "fred",                # Options: fred (needs FRED_API_KEY)
+            # Macro series come from the platform's keyless open-data providers
+            # (OECD/BLS/Fed); FRED is the fallback for key holders and for
+            # revision-pinned (vintage) queries.
+            "macro_data": "openbb,fred",         # Options: openbb, fred
             "prediction_markets": "polymarket",  # Options: polymarket (keyless)
         },
         # Tool-level configuration (takes precedence over category-level)
