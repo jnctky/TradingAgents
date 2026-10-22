@@ -1,10 +1,11 @@
 """OpenBB: company news and global/macro news from the local platform.
 
-The platform exposes no dedicated world-news route, so global news is assembled
-from the company-news route over a basket of market-wide proxy tickers (broad
-index ETFs, plus rates / gold / energy / dollar ETFs). Those pages carry the
-macro headlines a news analyst needs — Fed policy, index moves, oil and rates —
-without depending on a rate-limited third party.
+Global news uses the same company-news route: the nasdaq fetcher fans a
+comma-separated symbol basket out in parallel and de-duplicates by URL, so
+one request over market-wide proxy tickers (broad index ETFs, plus rates /
+gold / energy / dollar ETFs) carries the macro headlines a news analyst
+needs — Fed policy, index moves, oil and rates — without depending on a
+rate-limited third party.
 """
 
 import logging
@@ -12,7 +13,6 @@ from datetime import datetime, timedelta
 from typing import Annotated
 
 from tradingagents.dataflows.config import get_config
-from tradingagents.dataflows.errors import NoMarketDataError
 
 from .client import PROVIDER, get_json
 
@@ -94,12 +94,12 @@ def get_global_news_openbb(
     look_back_days: Annotated[int | None, "Days to look back"] = None,
     limit: Annotated[int | None, "Max articles to return"] = None,
 ) -> str:
-    """Global / macro news assembled from market-wide proxy tickers.
+    """Global / macro news from one basket request over market proxies.
 
-    Each proxy's company-news page carries the macro stories that move the tape
-    (index moves, Fed policy, rates, oil, gold, the dollar). Results are merged,
-    de-duplicated by headline and clipped to the look-back window, so the news
-    analyst gets a broad macro read from one vendor that has no tight rate limit.
+    The nasdaq company-news fetcher accepts comma-separated symbols and
+    gathers them in parallel, so a single GET returns the merged macro feed
+    (URL-deduped server-side). This function re-dedups by headline, clips to
+    the look-back window and trims to ``limit``.
     """
     config = get_config()
     if look_back_days is None:
@@ -113,48 +113,35 @@ def get_global_news_openbb(
     end_dt = as_of_dt.replace(hour=23, minute=59)
     start_str = start_dt.strftime("%Y-%m-%d")
 
-    # Ask each proxy for more than we need: most of a basket's headlines repeat
-    # across proxies, and out-of-window rows must not consume the budget.
-    per_proxy = max(int(limit) * 2, 15)
+    # Ask for more than we need: out-of-window rows and duplicate headlines
+    # must not consume the budget.
+    rows = get_json(
+        "/api/v1/news/company",
+        f"global news via {', '.join(proxies)}",
+        params={
+            "symbol": ",".join(proxies),
+            "provider": PROVIDER,
+            "limit": max(int(limit) * 3, 30),
+            "start_date": start_str,
+            "end_date": as_of_date,
+        },
+    )
+
     collected: list[dict] = []
     seen: set[str] = set()
-    answered = 0
+    for row in rows:
+        pub_dt = _pub_dt(row)
+        if pub_dt is None or not (start_dt <= pub_dt <= end_dt):
+            continue  # never leak a row past the analysis date
+        key = " ".join((row.get("title") or "").lower().split())
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        collected.append(row)
 
-    for symbol in proxies:
-        try:
-            rows = get_json(
-                "/api/v1/news/company",
-                f"global news via {symbol}",
-                params={
-                    "symbol": symbol,
-                    "provider": PROVIDER,
-                    "limit": per_proxy,
-                    "start_date": start_str,
-                    "end_date": as_of_date,
-                },
-            )
-        except NoMarketDataError:
-            continue  # one proxy without a news page is not a vendor failure
-        answered += 1
-        for row in rows:
-            pub_dt = _pub_dt(row)
-            if pub_dt is None or not (start_dt <= pub_dt <= end_dt):
-                continue  # never leak a row past the analysis date
-            key = " ".join((row.get("title") or "").lower().split())
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            collected.append({**row, "_proxy": symbol})
-
-    if not answered:
-        # Every proxy failed: let the router fall through to the next vendor.
-        raise NoMarketDataError(
-            ",".join(proxies),
-            detail="OpenBB company-news route returned no data for any macro proxy",
-        )
-
-    collected.sort(key=lambda r: _pub_dt(r) or datetime.min, reverse=True)
-    selected = collected[: int(limit)]
+    selected = sorted(
+        collected, key=lambda r: _pub_dt(r) or datetime.min, reverse=True
+    )[: int(limit)]
 
     if not selected:
         return (f"No global news found between {start_str} and {as_of_date} "
