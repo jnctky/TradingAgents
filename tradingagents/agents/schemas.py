@@ -254,6 +254,17 @@ class PortfolioDecision(BaseModel):
         default=None,
         description="Optional target price in the instrument's quote currency.",
     )
+    confidence: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "How decisively the evidence supports this call, 0.0-1.0. Judge the "
+            "strength of the winning case after weighing the debate, not the "
+            "magnitude of the expected move: 0.8+ means little left to argue, "
+            "0.5-0.6 means a close call."
+        ),
+    )
     time_horizon: str | None = Field(
         default=None,
         description="Optional recommended holding period, e.g. '3-6 months'.",
@@ -282,6 +293,8 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
     ]
     # Named even when absent: a missing line reads as a field nobody asked for,
     # so a reader cannot tell "no target" from "target not reported".
+    confidence = decision.confidence if decision.confidence is not None else "not provided"
+    parts.extend(["", f"**Confidence**: {confidence}"])
     target = decision.price_target if decision.price_target is not None else "not provided"
     parts.extend(["", f"**Price Target**: {target}"])
     parts.extend(["", f"**Time Horizon**: {decision.time_horizon or 'not provided'}"])
