@@ -6,6 +6,7 @@ from tradingagents.dataflows.errors import (
     VendorNotConfiguredError,
     VendorUnavailableError,
 )
+from tradingagents.dataflows.trace import record_call, stopwatch
 from tradingagents.dataflows.vendors.alpha_vantage import (
     get_balance_sheet as get_alpha_vantage_balance_sheet,
     get_cashflow as get_alpha_vantage_cashflow,
@@ -250,12 +251,22 @@ def route_to_vendor(method: str, *args, **kwargs):
     last_unavailable: VendorUnavailableError | None = None
     failed: Exception | None = None     # a vendor that raised something untyped
     first_error: Exception | None = None
+    chain_watch = stopwatch()
+    chain_watch.__enter__()
     for vendor in vendor_chain:
         vendor_impl = VENDOR_METHODS[method][vendor]
         impl_func = vendor_impl[0] if isinstance(vendor_impl, list) else vendor_impl
 
         try:
-            return impl_func(*args, **kwargs)
+            with stopwatch() as watch:
+                result = impl_func(*args, **kwargs)
+            # Provenance is recorded here because this is the only frame that
+            # knows which vendor actually answered — the payload text does not
+            # say so consistently (indicators carry no source line at all).
+            record_call(method=method, category=category, vendor=vendor,
+                        chain=vendor_chain, args=args, kwargs=kwargs,
+                        ms=watch.ms, result=result)
+            return result
         except VendorUnavailableError as e:
             logger.warning("Vendor %r unavailable for %s: %s; trying next vendor.", vendor, method, e)
             # Kept so an all-unavailable chain can say the vendor was the
@@ -279,6 +290,14 @@ def route_to_vendor(method: str, *args, **kwargs):
                 first_error = e
             failed = e
             continue
+
+    # No vendor served this call. Keep one record of the miss so the cockpit can
+    # distinguish "source returned nothing" from "nobody was ever asked" —
+    # otherwise a silent gap looks like the analyst simply chose not to look.
+    chain_watch.__exit__(None, None, None)
+    record_call(method=method, category=category, vendor=None, chain=vendor_chain,
+                args=args, kwargs=kwargs, ms=chain_watch.ms,
+                error=str(first_error or last_no_data or last_unavailable or "no data"))
 
     # A vendor that throttled or failed the request never said whether it has
     # the symbol, so no other vendor's "no data" can speak for the whole chain:
