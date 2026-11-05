@@ -29,6 +29,9 @@ PROVIDER_API_KEY_ENV: dict[str, str | None] = {
     "minimax":    "MINIMAX_API_KEY",
     "minimax-cn": "MINIMAX_CN_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    # Router.one: hosted OpenAI-compatible gateway (api.router.one/v1),
+    # domestic direct connection; one key covers all routed models.
+    "router-one": "ROUTER_ONE_API_KEY",
     # Additional hosted OpenAI-compatible providers (model is user-specified).
     # kimi -> Moonshot AI; nvidia -> NVIDIA NIM.
     "mistral":    "MISTRAL_API_KEY",

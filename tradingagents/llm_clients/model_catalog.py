@@ -164,6 +164,20 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Custom model ID", "custom"),
         ],
     },
+    # Router.one: hosted OpenAI-compatible gateway (api.router.one/v1),
+    # domestic direct connection, one key for all routed models. Its DeepSeek
+    # lineup currently exposes only Flash — there is no V4.1 Pro route yet,
+    # so the deep tier points at the same Flash ID until that changes.
+    "router-one": {
+        "quick": [
+            ("DeepSeek V4.1 Flash - via Router.one, 1M ctx", "deepseek-v4.1-flash"),
+            ("Custom model ID", "custom"),
+        ],
+        "deep": [
+            ("DeepSeek V4.1 Flash - via Router.one (no Pro route yet)", "deepseek-v4.1-flash"),
+            ("Custom model ID", "custom"),
+        ],
+    },
     # Qwen: same model IDs across global (dashscope-intl) and China
     # (dashscope) endpoints, so the two provider keys share one model list.
     "qwen": _QWEN_MODELS,
