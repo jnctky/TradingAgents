@@ -24,8 +24,7 @@ import json
 import os
 import threading
 import time
-from datetime import date as _date_cls
-from datetime import datetime
+from datetime import date as _date_cls, datetime
 from pathlib import Path
 from typing import Any
 
@@ -127,7 +126,7 @@ class stopwatch:
         self.started = 0.0
         self.ms = 0.0
 
-    def __enter__(self) -> "stopwatch":
+    def __enter__(self) -> stopwatch:
         self.started = time.perf_counter()
         return self
 

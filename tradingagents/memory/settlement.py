@@ -5,10 +5,26 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
+import pandas as pd
+
 from tradingagents.dataflows.symbols import normalize_symbol
-from tradingagents.dataflows.vendors.yahoo.market import get_closes
+from tradingagents.dataflows.vendors.ohlcv import load_ohlcv
 
 logger = logging.getLogger(__name__)
+
+
+def get_closes(symbol: str, start_date: str, end_date: str) -> pd.Series:
+    """Daily closes in ``[start_date, end_date)`` from the configured vendor chain.
+
+    Local patch (2026-11-02): the settlement/alpha path used to call yfinance
+    directly, which re-introduced the Yahoo throttle after every other call had
+    moved to the sidecar. It now reads through the same chain the analysts use.
+    """
+    frame = load_ohlcv(normalize_symbol(symbol), end_date)
+    closes = frame["Close"]
+    index = pd.to_datetime(frame["Date"] if "Date" in frame.columns else frame.index)
+    mask = (index >= pd.Timestamp(start_date)) & (index < pd.Timestamp(end_date))
+    return pd.Series(closes.to_numpy()[mask], index=index[mask])
 
 
 def resolve_benchmark(ticker: str, config: dict) -> str:

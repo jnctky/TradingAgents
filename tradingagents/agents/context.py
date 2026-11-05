@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from tradingagents.dataflows.date_window import is_historical
-from tradingagents.dataflows.vendors.yahoo.fundamentals import get_company_profile
+from tradingagents.dataflows.vendors.sidecar.fundamentals import get_company_profile
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +67,11 @@ def resolve_instrument_identity(ticker: str) -> dict:
     the price action to a narrative and invent an identity that then cascaded
     through every downstream agent.
 
-    Best-effort by design: if yfinance is unavailable, rate-limited, or doesn't
-    recognise the ticker, we return ``{}`` and the caller falls back to
-    ticker-only context rather than failing before analysis starts. An answer
-    is cached for the process; a failed lookup is asked again next time.
+    Best-effort by design: the sidecar profile feed is the primary source (the
+    OpenBB platform is the fallback); if neither recognises the ticker we return
+    ``{}`` and the caller falls back to ticker-only context rather than failing
+    before analysis starts. An answer is cached for the process; a failed lookup
+    is asked again next time.
 
     Identity resolves for the same instrument the price path fetches
     (``XAUUSD`` -> ``GC=F``, #983).
@@ -85,7 +86,12 @@ def resolve_instrument_identity(ticker: str) -> dict:
 @functools.lru_cache(maxsize=256)
 def _identity(ticker: str) -> dict:
     """The vendor's identity fields for ``ticker``; raises if the lookup fails."""
-    info = get_company_profile(ticker)
+    try:
+        info = get_company_profile(ticker)
+    except Exception:  # noqa: BLE001 - a dead sidecar must not block the run
+        from tradingagents.dataflows.vendors.openbb import get_company_profile as openbb_profile
+
+        info = openbb_profile(ticker)
     identity: dict[str, str] = {}
     company_name = _clean_identity_value(info.get("longName")) or _clean_identity_value(
         info.get("shortName")

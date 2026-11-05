@@ -159,7 +159,8 @@ def test_values_do_not_break_the_columns():
     """Figures run to the billions; a thousands separator would split the field."""
     out = sec_edgar.get_balance_sheet("AAPL", "annual", "2024-11-15")
     body = [row for row in out.splitlines() if row.startswith("Total Assets")][0]
-    assert body.count(",") == out.splitlines()[3].count(",")
+    header = [row for row in out.splitlines() if row.startswith(",")][0]
+    assert body.count(",") == header.count(",")
 
 
 @pytest.mark.unit

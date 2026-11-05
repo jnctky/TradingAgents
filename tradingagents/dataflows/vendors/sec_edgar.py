@@ -217,9 +217,18 @@ def _statement(kind: str, ticker: str, freq: str, as_of_date: str, title: str) -
     if not periods:
         raise NoMarketDataError(ticker, ticker, f"no {freq} {title.lower()} filed by {as_of_date}")
 
+    # Local patch (2026-11-02): cap the columns. EDGAR returns every period ever
+    # filed — NVDA's table runs back to 2008 — and dozens of columns drown the
+    # agent's context without adding a usable signal. Keep the most recent 12
+    # quarters / 6 fiscal years.
+    max_periods = 12 if quarterly else 6
+    if len(periods) > max_periods:
+        periods = periods[-max_periods:]
+
     header = (
         f"# {title} for {ticker.upper()} ({freq}), USD in millions unless the row says otherwise\n"
-        f"# SEC EDGAR facts filed on or before {as_of_date}, at the values filed then\n\n"
+        f"# SEC EDGAR facts filed on or before {as_of_date}, at the values filed then\n"
+        f"# Most recent {len(periods)} periods shown\n\n"
     )
     rows = [",".join([""] + [end + names[index] for end, index in periods])]
     for label, (values, unit) in lines.items():

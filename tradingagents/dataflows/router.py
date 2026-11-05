@@ -19,6 +19,18 @@ from tradingagents.dataflows.vendors.alpha_vantage import (
     get_stock as get_alpha_vantage_stock,
 )
 from tradingagents.dataflows.vendors.fred import get_macro_data as get_fred_macro_data
+from tradingagents.dataflows.vendors.openbb import (
+    get_balance_sheet as get_openbb_balance_sheet,
+    get_cashflow as get_openbb_cashflow,
+    get_fundamentals as get_openbb_fundamentals,
+    get_global_news_openbb as get_openbb_global_news,
+    get_income_statement as get_openbb_income_statement,
+    get_insider_transactions as get_openbb_insider_transactions,
+    get_macro_data as get_openbb_macro,
+    get_news_openbb as get_openbb_news,
+    get_stock_data as get_openbb_stock,
+    get_stock_stats_indicators_window as get_openbb_indicator,
+)
 from tradingagents.dataflows.vendors.polymarket import (
     get_prediction_markets as get_polymarket_prediction_markets,
 )
@@ -27,30 +39,15 @@ from tradingagents.dataflows.vendors.sec_edgar import (
     get_cashflow as get_sec_edgar_cashflow,
     get_income_statement as get_sec_edgar_income_statement,
 )
-from tradingagents.dataflows.vendors.openbb import (
-    get_balance_sheet as get_openbb_balance_sheet,
-    get_cashflow as get_openbb_cashflow,
-    get_fundamentals as get_openbb_fundamentals,
-    get_income_statement as get_openbb_income_statement,
-    get_insider_transactions as get_openbb_insider_transactions,
-    get_global_news_openbb as get_openbb_global_news,
-    get_macro_data as get_openbb_macro,
-    get_news_openbb as get_openbb_news,
-    get_stock_data as get_openbb_stock,
-    get_stock_stats_indicators_window as get_openbb_indicator,
+from tradingagents.dataflows.vendors.sidecar import (
+    get_balance_sheet as get_sidecar_balance_sheet,
+    get_cashflow as get_sidecar_cashflow,
+    get_fundamentals as get_sidecar_fundamentals,
+    get_income_statement as get_sidecar_income_statement,
+    get_news as get_sidecar_news,
+    get_stock_data as get_sidecar_stock,
+    get_stock_stats_indicators_window as get_sidecar_indicator,
 )
-from tradingagents.dataflows.vendors.yahoo.fundamentals import (
-    get_balance_sheet as get_yfinance_balance_sheet,
-    get_cashflow as get_yfinance_cashflow,
-    get_fundamentals as get_yfinance_fundamentals,
-    get_income_statement as get_yfinance_income_statement,
-    get_insider_transactions as get_yfinance_insider_transactions,
-)
-from tradingagents.dataflows.vendors.yahoo.market import (
-    get_stock_stats_indicators_window,
-    get_YFin_data_online,
-)
-from tradingagents.dataflows.vendors.yahoo.news import get_global_news_yfinance, get_news_yfinance
 
 logger = logging.getLogger(__name__)
 
@@ -110,55 +107,53 @@ OPTIONAL_CATEGORIES = {"macro_data", "prediction_markets"}
 VENDOR_METHODS = {
     # core_stock_apis
     "get_stock_data": {
+        "sidecar": get_sidecar_stock,
         "openbb": get_openbb_stock,
         "alpha_vantage": get_alpha_vantage_stock,
-        "yfinance": get_YFin_data_online,
     },
     # technical_indicators
     "get_indicators": {
+        "sidecar": get_sidecar_indicator,
         "openbb": get_openbb_indicator,
         "alpha_vantage": get_alpha_vantage_indicator,
-        "yfinance": get_stock_stats_indicators_window,
     },
     # fundamental_data
     "get_fundamentals": {
+        "sidecar": get_sidecar_fundamentals,
         "openbb": get_openbb_fundamentals,
         "alpha_vantage": get_alpha_vantage_fundamentals,
-        "yfinance": get_yfinance_fundamentals,
     },
     "get_balance_sheet": {
+        "sec_edgar": get_sec_edgar_balance_sheet,
+        "sidecar": get_sidecar_balance_sheet,
         "openbb": get_openbb_balance_sheet,
         "alpha_vantage": get_alpha_vantage_balance_sheet,
-        "sec_edgar": get_sec_edgar_balance_sheet,
-        "yfinance": get_yfinance_balance_sheet,
     },
     "get_cashflow": {
+        "sec_edgar": get_sec_edgar_cashflow,
+        "sidecar": get_sidecar_cashflow,
         "openbb": get_openbb_cashflow,
         "alpha_vantage": get_alpha_vantage_cashflow,
-        "sec_edgar": get_sec_edgar_cashflow,
-        "yfinance": get_yfinance_cashflow,
     },
     "get_income_statement": {
+        "sec_edgar": get_sec_edgar_income_statement,
+        "sidecar": get_sidecar_income_statement,
         "openbb": get_openbb_income_statement,
         "alpha_vantage": get_alpha_vantage_income_statement,
-        "sec_edgar": get_sec_edgar_income_statement,
-        "yfinance": get_yfinance_income_statement,
     },
     # news_data
     "get_news": {
+        "sidecar": get_sidecar_news,
         "openbb": get_openbb_news,
         "alpha_vantage": get_alpha_vantage_news,
-        "yfinance": get_news_yfinance,
     },
     "get_global_news": {
         "openbb": get_openbb_global_news,
-        "yfinance": get_global_news_yfinance,
         "alpha_vantage": get_alpha_vantage_global_news,
     },
     "get_insider_transactions": {
         "openbb": get_openbb_insider_transactions,
         "alpha_vantage": get_alpha_vantage_insider_transactions,
-        "yfinance": get_yfinance_insider_transactions,
     },
     # macro_data
     "get_macro_indicators": {

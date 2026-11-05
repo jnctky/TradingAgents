@@ -165,18 +165,19 @@ def build_default_config() -> dict:
         # routed to vendors you didn't choose. For ordered fallback, list several,
         # e.g. "yfinance,alpha_vantage". "default" uses all available vendors.
         "data_vendors": {
-            # openbb = local OpenBB Platform (127.0.0.1:6900, nasdaq provider);
-            # yfinance stays as the ordered fallback when the platform is down.
-            "core_stock_apis": "openbb,yfinance",       # Options: openbb, alpha_vantage, yfinance
-            "technical_indicators": "openbb,yfinance",  # Options: openbb, alpha_vantage, yfinance
-            # Statements come from OpenBB first (as-reported from nasdaq), then
-            # SEC EDGAR and Yahoo; the overview and insider tools likewise from
-            # OpenBB, then Yahoo.
-            "fundamental_data": "openbb,sec_edgar,yfinance",  # Options: openbb, sec_edgar, alpha_vantage, yfinance
-            "news_data": "openbb,yfinance",      # Options: openbb, alpha_vantage, yfinance
+            # Domestic-first data chain. yfinance is deliberately absent: Yahoo
+            # throttles this network to death even behind a proxy, so every
+            # category now resolves through the local akshare sidecar (:47995,
+            # Tencent/Sina/Eastmoney) or the local OpenBB Platform (:6900).
+            # Statements lead with SEC EDGAR for as-filed quarterly detail; the
+            # sidecar is the annual-only domestic fallback.
+            "core_stock_apis": "sidecar,openbb",       # Options: sidecar, openbb, alpha_vantage
+            "technical_indicators": "sidecar,openbb",  # Options: sidecar, openbb, alpha_vantage
+            "fundamental_data": "sec_edgar,sidecar,openbb",  # Options: sec_edgar, sidecar, openbb, alpha_vantage
+            "news_data": "sidecar,openbb",      # Options: sidecar, openbb, alpha_vantage
             # Macro series come from the platform's keyless open-data providers
             # (OECD/BLS/Fed); FRED is the fallback for key holders and for
-            # revision-pinned (vintage) queries.
+            # revision-pinned (vintage) queries. No sidecar macro route yet.
             "macro_data": "openbb,fred",         # Options: openbb, fred
             "prediction_markets": "polymarket",  # Options: polymarket (keyless)
         },

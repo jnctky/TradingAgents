@@ -183,24 +183,25 @@ def test_the_snapshot_does_not_present_a_filled_price_as_reported(monkeypatch, t
     """Gap filling exists so indicators compute on a continuous series. The
     verification snapshot is the one place a number must be what the vendor
     reported, or the module built to stop invented prices supplies them."""
-    from tradingagents.dataflows.vendors.yahoo import ohlcv, snapshot
+    from tradingagents.dataflows.vendors import ohlcv as ohlcv_dispatch
+    from tradingagents.dataflows.vendors.yahoo import snapshot
 
-    frame = pd.DataFrame({
-        "Date": ["2026-05-06", "2026-05-07", "2026-05-08"],
-        "Open": [100.0, 104.5, ""],     # the latest bar has not settled
-        "High": [101.0, 105.5, ""],
-        "Low": [99.0, 103.5, ""],
+    raw = pd.DataFrame({
+        "Date": pd.to_datetime(["2026-05-06", "2026-05-07", "2026-05-08"]),
+        "Open": [100.0, 104.5, float("nan")],     # the latest bar has not settled
+        "High": [101.0, 105.5, float("nan")],
+        "Low": [99.0, 103.5, float("nan")],
         "Close": [100.5, 105.0, 106.0],
-        "Volume": [1000000, 1000000, ""],
+        "Volume": [1000000.0, 1000000.0, float("nan")],
+        "Adj Close": [100.5, 105.0, 106.0],
     })
-    today = pd.Timestamp("2026-05-08 12:00")
-    monkeypatch.setattr(ohlcv, "get_config", lambda: {"data_cache_dir": str(tmp_path)})
-    monkeypatch.setattr(ohlcv.pd.Timestamp, "today", staticmethod(lambda: today))
-    cache = tmp_path / "AAPL-YFin-data.csv"
-    cache.write_text(frame.to_csv(index=False))
-    _stamp(cache, today)
-    monkeypatch.setattr(ohlcv.yf, "Ticker", lambda symbol: SimpleNamespace(
-        history=lambda *a, **k: (_ for _ in ()).throw(AssertionError("should read the seeded cache"))))
+
+    def fake_loader(symbol, as_of_date, fill_gaps=True):
+        # The snapshot must ask for the raw series; filling here is the failure.
+        return raw.ffill() if fill_gaps else raw
+
+    monkeypatch.setattr(ohlcv_dispatch, "_loaders", lambda: {"sidecar": fake_loader})
+    monkeypatch.setattr(ohlcv_dispatch, "configured_chain", lambda: ["sidecar"])
 
     out = snapshot.build_verified_market_snapshot("AAPL", "2026-05-08", 3)
 

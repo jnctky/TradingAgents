@@ -18,15 +18,16 @@ from tradingagents.dataflows.errors import NoMarketDataError, VendorUnavailableE
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CHAIN = ("openbb", "yfinance")
+DEFAULT_CHAIN = ("sidecar", "openbb")
 
 
 def _loaders() -> dict[str, object]:
     """Import lazily so a missing optional vendor cannot break module import."""
     from .openbb.ohlcv import load_ohlcv as openbb_loader
-    from .yahoo.ohlcv import load_ohlcv as yahoo_loader
+    from .sidecar.market import load_ohlcv as sidecar_loader
 
-    return {"openbb": openbb_loader, "yfinance": yahoo_loader}
+    # yfinance is intentionally not registered: it is throttled on this network.
+    return {"sidecar": sidecar_loader, "openbb": openbb_loader}
 
 
 def configured_chain() -> list[str]:

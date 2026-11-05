@@ -20,10 +20,16 @@ import http.client
 import json
 import logging
 from datetime import datetime
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from tradingagents.dataflows.date_window import coverage_gap, in_window
 from tradingagents.dataflows.symbols import crypto_base
+from tradingagents.dataflows.vendors._net import opener
+
+
+def urlopen(req, timeout=None):
+    """Open a request through the sentiment proxy (10808 by default)."""
+    return opener().open(req, timeout=timeout)
 
 logger = logging.getLogger(__name__)
 

@@ -225,7 +225,11 @@ def test_a_streamed_run_reads_its_own_graph_config(tmp_path, monkeypatch, offlin
     graph = _graph(tmp_path, monkeypatch, ScriptedModel(), output_language="French")
     set_config({"output_language": "German"})
     seen = []
-    monkeypatch.setitem(router.VENDOR_METHODS["get_stock_data"], "yfinance",
+    # Stub whichever vendor leads the chain rather than a named one: the order
+    # is a config decision (sidecar now sits first), and the point of this test
+    # is the config the tool body sees, not which vendor answers.
+    lead = next(iter(router.VENDOR_METHODS["get_stock_data"]))
+    monkeypatch.setitem(router.VENDOR_METHODS["get_stock_data"], lead,
                         lambda *a, **k: seen.append(get_config()["output_language"]) or "prices")
 
     between = [get_config()["output_language"]

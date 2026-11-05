@@ -54,6 +54,24 @@ def _resolve_entry(log, ticker, date, decision, reflection="Good call."):
     log.update_with_outcome(ticker, date, 0.05, 0.02, 5, reflection)
 
 
+def _patch_closes(monkeypatch, prices_by_symbol, start="2026-01-05"):
+    """Serve settlement.get_closes from in-memory daily closes (no network).
+
+    The price source moved from yfinance to the vendor chain (sidecar/OpenBB),
+    so these tests stub the chain's entry point instead of yfinance internals.
+    """
+    series = {sym: _price_df(prices, start=start)["Close"] for sym, prices in prices_by_symbol.items()}
+
+    def fake(symbol, start_date, end_date):
+        if symbol not in series:
+            return pd.Series(dtype=float)
+        s = series[symbol]
+        mask = (s.index >= pd.Timestamp(start_date)) & (s.index < pd.Timestamp(end_date))
+        return s[mask]
+
+    monkeypatch.setattr(settlement, "get_closes", fake)
+
+
 def _price_df(prices, start="2026-01-05"):
     """Minimal DataFrame matching yfinance .history() output shape.
 
@@ -511,84 +529,58 @@ class TestDeferredReflection:
 
     # settlement.fetch_returns
 
-    def test_fetch_returns_valid_ticker(self):
+    def test_fetch_returns_valid_ticker(self, monkeypatch):
         stock_prices = [100.0, 102.0, 104.0, 103.0, 105.0, 106.0, 107.0]
         spy_prices   = [400.0, 402.0, 404.0, 403.0, 405.0, 406.0, 407.0]
-        with patch("yfinance.Ticker") as mock_ticker_cls:
-            def _make_ticker(sym):
-                m = MagicMock()
-                m.history.return_value = _price_df(spy_prices if sym == "SPY" else stock_prices)
-                return m
-            mock_ticker_cls.side_effect = _make_ticker
-            raw, alpha, days, resolved = settlement.fetch_returns("NVDA", "2026-01-05")
+        _patch_closes(monkeypatch, {"NVDA": stock_prices, "SPY": spy_prices})
+        raw, alpha, days, resolved = settlement.fetch_returns("NVDA", "2026-01-05")
         assert raw is not None and alpha is not None and days is not None
         assert isinstance(raw, float) and isinstance(alpha, float) and isinstance(days, int)
         assert days == 5
         # resolution date = the bar `days` sessions after entry, the first close after the decision (#1251)
         assert resolved == "2026-01-11"
 
-    def test_fetch_returns_too_recent(self):
+    def test_fetch_returns_too_recent(self, monkeypatch):
         """Only 1 data point available → returns all-None, no crash."""
-        with patch("yfinance.Ticker") as mock_ticker_cls:
-            m = MagicMock()
-            m.history.return_value = _price_df([100.0])
-            mock_ticker_cls.return_value = m
-            raw, alpha, days, resolved = settlement.fetch_returns("NVDA", "2026-04-19")
+        _patch_closes(monkeypatch, {"NVDA": [100.0], "SPY": [400.0]})
+        raw, alpha, days, resolved = settlement.fetch_returns("NVDA", "2026-04-19")
         assert (raw, alpha, days, resolved) == (None, None, None, None)
 
-    def test_fetch_returns_delisted(self):
-        """Empty DataFrame → returns all-None, no crash."""
-        with patch("yfinance.Ticker") as mock_ticker_cls:
-            m = MagicMock()
-            m.history.return_value = pd.DataFrame({"Close": []})
-            mock_ticker_cls.return_value = m
-            raw, alpha, days, resolved = settlement.fetch_returns("XXXXXFAKE", "2026-01-10")
+    def test_fetch_returns_delisted(self, monkeypatch):
+        """Empty series → returns all-None, no crash."""
+        _patch_closes(monkeypatch, {"XXXXXFAKE": [], "SPY": []})
+        raw, alpha, days, resolved = settlement.fetch_returns("XXXXXFAKE", "2026-01-10")
         assert (raw, alpha, days, resolved) == (None, None, None, None)
 
-    def test_fetch_returns_spy_shorter_than_stock(self):
+    def test_fetch_returns_spy_shorter_than_stock(self, monkeypatch):
         """SPY having fewer rows than the stock (but still a full window) must
         not raise IndexError."""
         stock_prices = [100.0, 102.0, 104.0, 103.0, 105.0, 106.0, 107.0, 108.0]  # 8 rows
         spy_prices   = [400.0, 402.0, 403.0, 405.0, 406.0, 407.0, 408.0]         # 7 rows
-        with patch("yfinance.Ticker") as mock_ticker_cls:
-            def _make_ticker(sym):
-                m = MagicMock()
-                m.history.return_value = _price_df(spy_prices if sym == "SPY" else stock_prices)
-                return m
-            mock_ticker_cls.side_effect = _make_ticker
-            raw, alpha, days, resolved = settlement.fetch_returns("NVDA", "2026-01-05")
+        _patch_closes(monkeypatch, {"NVDA": stock_prices, "SPY": spy_prices})
+        raw, alpha, days, resolved = settlement.fetch_returns("NVDA", "2026-01-05")
         assert raw is not None and alpha is not None
         assert days == 5  # full holding window used for both series
         assert resolved == "2026-01-11"
 
-    def test_a_decision_is_scored_from_the_first_close_after_its_date(self):
+    def test_a_decision_is_scored_from_the_first_close_after_its_date(self, monkeypatch):
         """#1518: news published after the close on the decision date reaches the
         analysts, so the close of that date is not a price they could have traded at."""
         stock_prices = [100.0, 150.0, 150.0, 150.0, 150.0, 150.0, 165.0]   # jumps on the next close
         spy_prices   = [400.0] * 7
-        with patch("yfinance.Ticker") as mock_ticker_cls:
-            def _make_ticker(sym):
-                m = MagicMock()
-                m.history.return_value = _price_df(spy_prices if sym == "SPY" else stock_prices)
-                return m
-            mock_ticker_cls.side_effect = _make_ticker
-            raw, alpha, days, resolved = settlement.fetch_returns("NVDA", "2026-01-05")
+        _patch_closes(monkeypatch, {"NVDA": stock_prices, "SPY": spy_prices})
+        raw, alpha, days, resolved = settlement.fetch_returns("NVDA", "2026-01-05")
         assert raw == pytest.approx(0.10) and alpha == pytest.approx(0.10)   # 150 -> 165, not 100 -> 150
         assert resolved == "2026-01-11"
 
-    def test_fetch_returns_incomplete_window_stays_pending(self):
+    def test_fetch_returns_incomplete_window_stays_pending(self, monkeypatch):
         """#1169: a rerun before the full holding window has traded returns
         unavailable (all-None) so the entry stays pending, rather than settling
         on a premature partial return."""
         stock_prices = [100.0, 102.0, 104.0]  # only 3 rows; holding window is 5
         spy_prices   = [400.0, 402.0, 404.0]
-        with patch("yfinance.Ticker") as mock_ticker_cls:
-            def _make_ticker(sym):
-                m = MagicMock()
-                m.history.return_value = _price_df(spy_prices if sym == "SPY" else stock_prices)
-                return m
-            mock_ticker_cls.side_effect = _make_ticker
-            result = settlement.fetch_returns("NVDA", "2026-01-05")
+        _patch_closes(monkeypatch, {"NVDA": stock_prices, "SPY": spy_prices})
+        result = settlement.fetch_returns("NVDA", "2026-01-05")
         assert result == (None, None, None, None)
 
     # settlement.resolve_benchmark picks the index for the alpha calculation
@@ -1029,17 +1021,12 @@ def test_a_longer_window_asks_for_enough_price_history(monkeypatch):
     of bars, and asking for 28 days left every outcome unsettled."""
     asked = {}
 
-    class _Ticker:
-        def __init__(self, symbol):
-            self.symbol = symbol
+    def fake_get_closes(symbol, start, end):
+        asked["start"], asked["end"] = start, end
+        days = pd.bdate_range(start, end)
+        return pd.Series(range(len(days)), index=days)
 
-        def history(self, start, end):
-            asked["start"], asked["end"] = start, end
-            import pandas as pd
-            days = pd.bdate_range(start, end)
-            return pd.DataFrame({"Close": range(len(days))}, index=days)
-
-    monkeypatch.setattr("tradingagents.dataflows.vendors.yahoo.market.yf.Ticker", _Ticker)
+    monkeypatch.setattr(settlement, "get_closes", fake_get_closes)
 
     raw, alpha, days, resolved = settlement.fetch_returns("NVDA", "2026-06-01", 21, benchmark="SPY")
 

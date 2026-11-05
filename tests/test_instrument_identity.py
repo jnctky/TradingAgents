@@ -16,12 +16,21 @@ from tradingagents.agents.context import (
 
 @pytest.mark.unit
 class ResolveInstrumentIdentityTests(unittest.TestCase):
+    """The resolver reads the akshare sidecar profile feed first and the OpenBB
+    platform second; both are patched here so a case never reaches the network."""
+
     def setUp(self):
         _identity.cache_clear()
 
-    def test_resolves_company_metadata_from_yfinance(self):
-        with patch("tradingagents.dataflows.vendors.yahoo.market.yf.Ticker") as mock:
-            mock.return_value.info = {
+    def _patch_sidecar(self, **kwargs):
+        return patch("tradingagents.agents.context.get_company_profile", **kwargs)
+
+    def _patch_openbb(self, **kwargs):
+        return patch("tradingagents.dataflows.vendors.openbb.get_company_profile", **kwargs)
+
+    def test_resolves_company_metadata_from_the_profile_feed(self):
+        with self._patch_sidecar() as mock:
+            mock.return_value = {
                 "longName": "TOTO LTD.",
                 "shortName": "TOTO",
                 "sector": "Industrials",
@@ -30,43 +39,43 @@ class ResolveInstrumentIdentityTests(unittest.TestCase):
                 "quoteType": "EQUITY",
             }
             identity = resolve_instrument_identity("totdy")
-        mock.assert_called_once_with("TOTDY")
+        mock.assert_called_once_with("totdy")
         self.assertEqual(identity["company_name"], "TOTO LTD.")
         self.assertEqual(identity["sector"], "Industrials")
         self.assertEqual(identity["industry"], "Building Products & Equipment")
         self.assertEqual(identity["exchange"], "PNK")
 
     def test_falls_back_to_short_name(self):
-        with patch("tradingagents.dataflows.vendors.yahoo.market.yf.Ticker") as mock:
-            mock.return_value.info = {"shortName": "TOTO", "sector": "Industrials"}
+        with self._patch_sidecar() as mock:
+            mock.return_value = {"shortName": "TOTO", "sector": "Industrials"}
             identity = resolve_instrument_identity("TOTDY")
         self.assertEqual(identity["company_name"], "TOTO")
 
     def test_skips_placeholder_values(self):
-        with patch("tradingagents.dataflows.vendors.yahoo.market.yf.Ticker") as mock:
-            mock.return_value.info = {"longName": "  ", "sector": "None", "industry": "n/a"}
+        with self._patch_sidecar() as mock:
+            mock.return_value = {"longName": "  ", "sector": "None", "industry": "n/a"}
             identity = resolve_instrument_identity("TOTDY")
         self.assertEqual(identity, {})
 
     def test_fails_open_on_exception(self):
-        with patch(
-            "tradingagents.dataflows.vendors.yahoo.market.yf.Ticker",
-            side_effect=RuntimeError("rate limited"),
-        ):
+        with self._patch_sidecar(side_effect=RuntimeError("rate limited")), \
+                self._patch_openbb(side_effect=RuntimeError("rate limited")):
             self.assertEqual(resolve_instrument_identity("TOTDY"), {})
 
     def test_a_failed_lookup_is_asked_again(self):
         # A long process (a backtest) must not run every later cell without an
         # identity because one request failed.
-        with patch("tradingagents.dataflows.vendors.yahoo.market.yf.Ticker") as mock:
-            type(mock.return_value).info = property(lambda self: (_ for _ in ()).throw(TimeoutError()))
+        with self._patch_sidecar() as mock, self._patch_openbb(side_effect=RuntimeError("down")):
+            mock.side_effect = TimeoutError()
             self.assertEqual(resolve_instrument_identity("TOTDY"), {})
-            type(mock.return_value).info = {"longName": "TOTO LTD."}
+            mock.side_effect = None
+            mock.return_value = {"longName": "TOTO LTD."}
             self.assertEqual(resolve_instrument_identity("TOTDY")["company_name"], "TOTO LTD.")
+        self.assertEqual(mock.call_count, 2)
 
     def test_result_is_cached(self):
-        with patch("tradingagents.dataflows.vendors.yahoo.market.yf.Ticker") as mock:
-            mock.return_value.info = {"longName": "TOTO LTD."}
+        with self._patch_sidecar() as mock:
+            mock.return_value = {"longName": "TOTO LTD."}
             first = resolve_instrument_identity("TOTDY")
             second = resolve_instrument_identity("TOTDY")
         mock.assert_called_once()  # second call served from cache
