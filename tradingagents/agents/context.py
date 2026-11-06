@@ -175,6 +175,25 @@ def build_instrument_context(
     return context
 
 
+def get_macro_context_from_state(state: Mapping[str, Any]) -> str:
+    """The shared market backdrop for this analysis date, or "" when there is none.
+
+    The macro node settles this once and stores it on the state, so every agent
+    reads the same text instead of re-deriving a backdrop from its own tools. An
+    empty result means the backdrop could not be built (dead platform route, no
+    readings) — callers drop the block rather than render an empty heading.
+    """
+    context = state.get("macro_context")
+    if isinstance(context, str) and context.strip():
+        return context
+    snapshot = state.get("macro_snapshot") or {}
+    if snapshot.get("readings"):
+        from tradingagents.dataflows.vendors.macro_context import snapshot_prompt_context
+
+        return snapshot_prompt_context(snapshot)
+    return ""
+
+
 def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:
     """Return the instrument context for the current run.
 

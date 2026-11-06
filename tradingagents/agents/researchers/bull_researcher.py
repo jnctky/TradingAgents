@@ -1,6 +1,7 @@
 from tradingagents.agents.context import (
     get_instrument_context_from_state,
     get_language_instruction,
+    get_macro_context_from_state,
     opponent_argument_or_opening,
     report_or_absent,
 )
@@ -20,6 +21,9 @@ def create_bull_researcher(llm):
         news_report = report_or_absent(state["news_report"], "news")
         fundamentals_report = report_or_absent(state["fundamentals_report"], "fundamentals")
         instrument_context = get_instrument_context_from_state(state)
+        macro_context = get_macro_context_from_state(state)
+        # The shared backdrop for this date; dropped when unavailable.
+        macro_block = f"\n{macro_context}" if macro_context else ""
         asset_type = state.get("asset_type", "stock")
         target_label = "stock" if asset_type == "stock" else "asset"
         fundamentals_label = (
@@ -38,7 +42,7 @@ Key points to focus on:
 - Engagement: Present your argument in a conversational style, engaging directly with the bear analyst's points and debating effectively rather than just listing data.
 
 Resources available:
-{instrument_context}
+{instrument_context}{macro_block}
 Market research report: {market_research_report}
 Social media sentiment report: {sentiment_report}
 Latest world affairs news: {news_report}

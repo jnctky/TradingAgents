@@ -83,6 +83,9 @@ def build_default_config() -> dict:
     return _apply_env_overrides({
         "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR") or os.path.join(_TRADINGAGENTS_HOME, "logs"),
         "data_cache_dir": os.getenv("TRADINGAGENTS_CACHE_DIR") or os.path.join(_TRADINGAGENTS_HOME, "cache"),
+        # One macro snapshot per analysis date, shared by every ticker: the data
+        # is fetched once and the narrative is written once (#macro-once).
+        "macro_context_dir": os.getenv("TRADINGAGENTS_MACRO_DIR") or os.path.join(_TRADINGAGENTS_HOME, "cache", "macro_context"),
         "memory_log_path": os.getenv("TRADINGAGENTS_MEMORY_LOG_PATH") or os.path.join(_TRADINGAGENTS_HOME, "memory", "trading_memory.md"),
         # Optional cap on the number of resolved memory log entries. When set,
         # the oldest resolved entries are pruned once this limit is exceeded.

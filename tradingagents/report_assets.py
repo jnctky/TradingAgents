@@ -529,3 +529,31 @@ def fmt_volume_text(value) -> str:
         if abs(value) >= factor:
             return f"{value / factor:.1f}{unit}"
     return f"{value:,.0f}"
+
+
+def macro_section_markdown(final_state: dict) -> str:
+    """The macro section body for a run: the narrative, then the readings behind it.
+
+    Both halves come from the state the macro node settled, so the report can
+    never show a narrative built on different numbers than the table below it.
+    Empty when the backdrop could not be built — the caller omits the section
+    rather than printing an empty heading.
+    """
+    import re
+
+    from tradingagents.dataflows.vendors.macro_context import snapshot_markdown
+
+    report = (final_state.get("macro_report") or "").strip()
+    snapshot = final_state.get("macro_snapshot") or {}
+    blocks = []
+    if report:
+        # The narrative's headings sit under the section heading, never beside
+        # it: a model that opens with "## Policy" would otherwise split the
+        # report into sibling sections.
+        def demote(match):
+            return "#" * min(len(match.group(1)) + 1, 6) + " "
+
+        blocks.append(re.sub(r"^(#{1,5}) ", demote, report, flags=re.M))
+    if snapshot.get("readings"):
+        blocks.append(snapshot_markdown(snapshot))
+    return "\n\n".join(blocks)

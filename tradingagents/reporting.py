@@ -109,6 +109,12 @@ def write_report_tree(final_state: dict, ticker: str, save_path, settings: dict 
         write_evidence_files(save_path, evidence)
         evidence_md = evidence_markdown(evidence)
 
+    # The macro backdrop lives on the run's state (settled before the analysts,
+    # shared across tickers), so it needs no parameter here.
+    from tradingagents.report_assets import macro_section_markdown
+
+    macro_md = macro_section_markdown(final_state).strip()
+
     parts = _report_parts(final_state)
     sections = []
     for heading, folder, written in parts:
@@ -118,7 +124,9 @@ def write_report_tree(final_state: dict, ticker: str, save_path, settings: dict 
         content = "\n\n".join(f"### {agent}\n{text}" for agent, _filename, text in written)
         sections.append(f"## {heading}\n\n{content}")
 
-    body_md = "\n\n".join(([evidence_md.strip()] if evidence_md else []) + sections)
+    body_md = "\n\n".join(([evidence_md.strip()] if evidence_md else [])
+                          + ([f"## 0.5 Macro backdrop\n\n{macro_md}"] if macro_md else [])
+                          + sections)
     (save_path / "complete_report.md").write_text(
         _header(ticker, final_state, settings) + body_md, encoding="utf-8"
     )

@@ -282,6 +282,12 @@ def render_report(ticker: str, final_state: dict, settings: dict | None, parts,
 
         evidence_html = render_evidence(evidence)
 
+    macro_md = ""
+    if final_state.get("macro_report") or (final_state.get("macro_snapshot") or {}).get("readings"):
+        from tradingagents.report_assets import macro_section_markdown
+
+        macro_md = macro_section_markdown(final_state).strip()
+
     contents, body = [], []
     if evidence_html:
         contents.append('<li><a href="#s0"><span class="num">0</span> '
@@ -291,6 +297,15 @@ def render_report(ticker: str, final_state: dict, settings: dict | None, parts,
                     "The charts are drawn from the same price rows the analysts' tools "
                     "served during the run — nothing here is re-fetched after the fact."
                     f"</p>{evidence_html}</section>")
+    if macro_md:
+        contents.append('<li><a href="#s05"><span class="num">0.5</span> '
+                        '<span class="label">Macro backdrop</span></a></li>')
+        body.append('<section id="s05"><h2>0.5 Macro backdrop</h2>'
+                    '<p class="evidence-note">The environment this ticker was analysed in, '
+                    "settled once for the analysis date and shared by every ticker that day. "
+                    "The narrative is the model's; the readings and regime tags below it are "
+                    "fixed rules over the same series, each stating its own basis."
+                    f"</p>{md.render(macro_md)}</section>")
     for n, (heading, _folder, written) in enumerate(parts, 1):
         agents = "".join(
             f'<li><a href="#s{n}-{m}"><span class="bar"></span> <span class="label">{escape(agent)}</span></a></li>'

@@ -29,7 +29,16 @@ MAX_ROWS = 18
 # percent (4.79). Convert on the way out so both vendors read the same.
 _PCT = "pct"
 
-# alias -> (label, units, value kind, route builder)
+# Transforms applied to a level series before it means what the caller asked for.
+_NONE = "none"
+_YOY = "yoy"            # price index -> % change vs the same month a year earlier
+_MOM = "mom"            # payroll level -> change vs the previous month
+
+# Series that need a longer window to carry any meaning: a year-over-year read
+# needs 13 months of points, a monthly change needs 2.
+_LONG_WINDOW_ALIASES = ("cpi", "unemployment", "gdp", "core_pce", "nfp")
+
+# alias -> (label, units, value kind)
 _MACRO_ROUTES: dict[str, tuple[str, str, str]] = {
     "cpi": ("US CPI inflation (YoY)", "% year-over-year", _PCT),
     "unemployment": ("US unemployment rate", "% of labour force", _PCT),
@@ -38,6 +47,26 @@ _MACRO_ROUTES: dict[str, tuple[str, str, str]] = {
     "yield_curve": ("US Treasury yield curve (latest session)", "%", _PCT),
     "gdp": ("US real GDP", "USD, SAAR level", "level"),
     "inflation_expectations": ("US inflation expectations (1y)", "%", _PCT),
+}
+
+# The platform also mirrors FRED series one-for-one (#keyless), which covers the
+# rates/dollar/risk block the OECD routes above do not. Two differences from the
+# routes above decide the formatting:
+#   * values arrive as FRED publishes them (a 4.90% yield is 4.90, not 0.049), so
+#     these use the "level" formatter and are never rescaled;
+#   * level series (PCE price index, payroll counts) need a transform before they
+#     read as the thing analysts ask for ("core PCE inflation", "payrolls added").
+# alias -> (label, units, series id, transform)
+_FRED_SERIES: dict[str, tuple[str, str, str, str]] = {
+    "dollar_index": ("US dollar broad index (DTWEXBGS)", "index", "DTWEXBGS", _NONE),
+    "2y_treasury": ("US 2-year Treasury yield", "%", "DGS2", _NONE),
+    "30y_treasury": ("US 30-year Treasury yield", "%", "DGS30", _NONE),
+    "real_10y": ("US 10-year real yield (TIPS)", "%", "DFII10", _NONE),
+    "breakeven_10y": ("US 10-year breakeven inflation", "%", "T10YIE", _NONE),
+    "vix": ("CBOE volatility index (VIX)", "index", "VIXCLS", _NONE),
+    "jobless_claims": ("US initial jobless claims", "persons", "ICSA", _NONE),
+    "core_pce": ("US core PCE inflation (YoY)", "% year-over-year", "PCEPILFE", _YOY),
+    "nfp": ("US nonfarm payrolls (monthly change)", "thousand persons", "PAYEMS", _MOM),
 }
 
 # Input aliases the LLM tends to use.
@@ -57,6 +86,41 @@ _ALIASES = {
     "yield_curve": "yield_curve",
     "curve": "yield_curve",
     "real_gdp": "gdp",
+    # dollar block
+    "dxy": "dollar_index",
+    "dollar": "dollar_index",
+    "usd": "dollar_index",
+    "dollar_broad_index": "dollar_index",
+    "dtwexbgs": "dollar_index",
+    # rates block
+    "2y": "2y_treasury",
+    "dgs2": "2y_treasury",
+    "treasury_2y": "2y_treasury",
+    "30y": "30y_treasury",
+    "dgs30": "30y_treasury",
+    "treasury_30y": "30y_treasury",
+    "real_yield": "real_10y",
+    "tips_10y": "real_10y",
+    "dfii10": "real_10y",
+    "breakeven": "breakeven_10y",
+    "breakeven_inflation": "breakeven_10y",
+    "t10yie": "breakeven_10y",
+    # inflation / labour block
+    "pce": "core_pce",
+    "core_pce_yoy": "core_pce",
+    "pcepilfe": "core_pce",
+    "nonfarm": "nfp",
+    "nonfarm_payrolls": "nfp",
+    "payrolls": "nfp",
+    "payems": "nfp",
+    "claims": "jobless_claims",
+    "initial_claims": "jobless_claims",
+    "initial_jobless_claims": "jobless_claims",
+    "icsa": "jobless_claims",
+    # risk block
+    "fear_index": "vix",
+    "volatility": "vix",
+    "vixcls": "vix",
 }
 
 _CURVE_MATURITIES = ("month_1", "month_3", "month_6", "year_1", "year_2",
@@ -75,7 +139,48 @@ def _fmt(kind: str, value) -> str:
         return f"{float(value) * 100:.2f}%"
     if float(value) >= 1e12:
         return f"{float(value) / 1e12:.2f}T"
+    if abs(float(value)) >= 10_000:
+        # Counts and index levels (jobless claims, payroll levels): the decimals
+        # are noise at this magnitude and make the number harder to read.
+        return f"{float(value):,.0f}"
     return f"{float(value):,.2f}"
+
+
+def _yoy(points: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """Percent change against the same month a year earlier.
+
+    Keyed by month rather than by exact date: monthly series publish on the
+    first of the month, but a holiday shift or a late release can move that day,
+    and an exact-date lookup would silently drop those observations.
+    """
+    by_month: dict[str, float] = {}
+    for date, value in points:
+        by_month.setdefault(date[:7], value)      # first observation in the month
+    out = []
+    for date, value in points:
+        year, month = int(date[:4]), date[5:7]
+        base = by_month.get(f"{year - 1}-{month}")
+        if base:
+            out.append((date, (value / base - 1) * 100))
+    return out
+
+
+def _month_index(date: str) -> int:
+    """A date's month as a running count, so consecutive months differ by 1."""
+    return int(date[:4]) * 12 + int(date[5:7])
+
+
+def _mom(points: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """Change against the previous observation, only for consecutive months.
+
+    A gap means the previous point is not the previous month, and a two-month
+    difference reported as a one-month change overstates the move.
+    """
+    return [
+        (date, value - prev_value)
+        for (prev_date, prev_value), (date, value) in zip(points, points[1:])
+        if _month_index(date) - _month_index(prev_date) == 1
+    ]
 
 
 def _series_points(alias: str, start_date: str, end_date: str) -> tuple[list[tuple[str, float]], str]:
@@ -105,6 +210,19 @@ def _series_points(alias: str, start_date: str, end_date: str) -> tuple[list[tup
         rows = get_json("/api/v1/fixedincome/rate/effr", "Effective fed funds rate", params={
             "provider": "federal_reserve", "start_date": start_date, "end_date": end_date,
         })
+    elif alias in _FRED_SERIES:
+        # One wide table per request: the platform returns a `date` column plus
+        # one column per series id, with None where FRED had no print that day.
+        _label, _units, series_id, transform = _FRED_SERIES[alias]
+        rows = get_json("/api/v1/economy/fred_series", f"FRED {series_id}", params={
+            "provider": "fred", "symbol": series_id,
+            "start_date": start_date, "end_date": end_date,
+        })
+        assert_rows("macro", rows, f"{alias} observations")
+        points = [(str(r.get("date"))[:10], r.get(series_id)) for r in rows]
+        points = [(d, float(v)) for d, v in points if v is not None]
+        points = _yoy(points) if transform == _YOY else _mom(points) if transform == _MOM else points
+        return points, (points[-1][0] if points else "")
     else:  # 10y_treasury / yield_curve share the treasury curve series
         rows = get_json("/api/v1/fixedincome/government/treasury_rates",
                         "Treasury par yield curve", params={
@@ -131,25 +249,26 @@ def get_macro_data(
     look_back_days: int | None = None,
 ) -> str:
     """Keyless macro series from the local OpenBB Platform."""
+    alias = _resolve(indicator)
     if look_back_days is None:
         look_back_days = int(get_config().get("macro_lookback_days") or DEFAULT_LOOKBACK_DAYS)
-    elif indicator.lower() in ("cpi", "unemployment", "gdp") and look_back_days < 365:
-        # Monthly/quarterly series need headroom before a change is meaningful.
-        look_back_days = 1095
+    # Monthly/quarterly series need headroom before a change is meaningful: a
+    # year-over-year read needs 13 months of points, which 365 days does not buy.
+    if alias in _LONG_WINDOW_ALIASES:
+        look_back_days = max(int(look_back_days), 1095)
 
     end_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
     start_str = (end_dt - timedelta(days=int(look_back_days))).strftime("%Y-%m-%d")
 
-    alias = _resolve(indicator)
-    if alias not in _MACRO_ROUTES:
-        supported = ", ".join(sorted(_MACRO_ROUTES))
-        return (
-            f"OpenBB macro: unknown indicator '{indicator}'. Supported aliases: "
-            f"{supported}. ('core_pce' is FRED-only and needs FRED_API_KEY; "
-            f"'cpi' is the available inflation series here.)"
-        )
+    if alias not in _MACRO_ROUTES and alias not in _FRED_SERIES:
+        supported = ", ".join(sorted({*_MACRO_ROUTES, *_FRED_SERIES}))
+        return f"OpenBB macro: unknown indicator '{indicator}'. Supported aliases: {supported}."
 
-    label, units, kind = _MACRO_ROUTES[alias]
+    if alias in _FRED_SERIES:
+        fr_label, fr_units, _series_id, _transform = _FRED_SERIES[alias]
+        label, units, kind = fr_label, fr_units, "level"
+    else:
+        label, units, kind = _MACRO_ROUTES[alias]
     try:
         points, latest_date = _series_points(alias, start_str, as_of_date)
     except Exception as exc:  # noqa: BLE001 — degrade to guidance, never abort the run

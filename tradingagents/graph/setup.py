@@ -12,6 +12,7 @@ from tradingagents.agents import (
     create_bull_researcher,
     create_conservative_debator,
     create_fundamentals_analyst,
+    create_macro_analyst,
     create_market_analyst,
     create_neutral_debator,
     create_news_analyst,
@@ -141,6 +142,10 @@ class GraphSetup:
 
         workflow = StateGraph(AgentState)
 
+        # The backdrop is settled before any analyst runs: the analysts read it
+        # from the state, so it cannot be one more branch running beside them.
+        workflow.add_node("Macro Analyst", create_macro_analyst(self.deep_thinking_llm))
+
         for spec in plan.specs:
             workflow.add_node(spec.agent_node,
                               _analyst_graph(spec, analyst_factories[spec.key](), self.max_tool_rounds))
@@ -157,12 +162,14 @@ class GraphSetup:
         # The analysts work at the same time; the research debate starts once
         # every one of them has filed its report. The memory log settles past
         # decisions alongside them: only the Portfolio Manager reads its lessons.
+        # All of them start from the macro backdrop, which settled first.
         first_steps = [spec.agent_node for spec in plan.specs]
         if memory_node is not None:
             workflow.add_node("Memory Log", memory_node)
             first_steps.append("Memory Log")
+        workflow.add_edge(START, "Macro Analyst")
         for node in first_steps:
-            workflow.add_edge(START, node)
+            workflow.add_edge("Macro Analyst", node)
         workflow.add_edge(first_steps, "Bull Researcher")
 
         # Both research-debate edges share the complete DEBATE_PATH_MAP (#1088).

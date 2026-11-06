@@ -54,6 +54,11 @@ class AgentState(MessagesState):
     news_report: Annotated[str, "Report from the News Analyst on company and world news"]
     fundamentals_report: Annotated[str, "Report from the Fundamentals Analyst"]
 
+    # market backdrop, settled once per analysis date and shared by every ticker
+    macro_report: Annotated[str, "Macro backdrop narrative: the environment this ticker trades in"]
+    macro_snapshot: Annotated[dict, "Rule-based macro readings and regime tags for the analysis date"]
+    macro_context: Annotated[str, "Compact macro backdrop handed to the analysts' prompts"]
+
     # researcher team discussion step
     investment_debate_state: Annotated[
         InvestDebateState, "Current state of the debate on if to invest or not"
