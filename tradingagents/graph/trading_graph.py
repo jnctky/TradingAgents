@@ -274,16 +274,20 @@ class TradingAgentsGraph:
             "tool_vendors": dict(cfg.get("tool_vendors") or {}),
         }
 
-    def save_reports(self, final_state, ticker, save_path=None, html=True) -> Path:
+    def save_reports(self, final_state, ticker, save_path=None, html=True,
+                     evidence=None) -> Path:
         """Write the report tree for a completed run, like the CLI does.
 
         Programmatic callers get the same on-disk reports the CLI produces. Pass
         an explicit ``save_path`` or let it default under ``results_dir``; the
         report is also written as one HTML page unless ``html`` is False.
+        ``evidence`` (``report_assets.build_evidence()``) prepends the
+        "0. Evidence & charts" section to the report.
         """
         if save_path is None:
             save_path = self.default_report_path(ticker)
-        return write_report_tree(final_state, ticker, save_path, settings=self.run_settings(), html=html)
+        return write_report_tree(final_state, ticker, save_path, settings=self.run_settings(),
+                                 html=html, evidence=evidence)
 
     def default_report_path(self, ticker) -> Path:
         """Where a run's reports go unless told otherwise: under results_dir, stamped now."""

@@ -446,7 +446,15 @@ def _offer_reports(final_state, graph, ticker, save=None, show=None, html=None):
             html = _yes("Also save it as an HTML page?") if asked else True
         saved = False
         try:
-            report_file = graph.save_reports(final_state, ticker, save_path, html=html)
+            evidence = None
+            try:
+                from tradingagents.report_assets import build_evidence
+
+                evidence = build_evidence(ticker, final_state.get("trade_date") or "")
+            except Exception:       # noqa: BLE001 - evidence is additive, never fatal
+                evidence = None
+            report_file = graph.save_reports(final_state, ticker, save_path, html=html,
+                                             evidence=evidence)
             saved = True
             console.print(f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}")
             console.print(f"  [dim]Complete report:[/dim] {report_file.name}")

@@ -159,6 +159,16 @@ th, td { padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; border-
 th { font-weight: 600; border-bottom-color: var(--muted); }
 tbody tr:last-child td { border-bottom: 0; }
 
+/* The evidence section: inline charts (SVG strokes read the page palette),
+   captions, and the provenance tables. */
+main figure.chart { margin: 1.5rem 0 2rem; }
+main figure.chart figcaption { margin-top: 0.4rem; color: var(--muted);
+  font: 0.8rem/1.4 var(--sans); }
+.evidence-note { color: var(--muted); font: 0.85rem/1.5 var(--sans); }
+.failed { color: var(--down); }
+.news-links, .evidence-gaps { font: 0.8rem/1.6 var(--sans); overflow-wrap: anywhere; }
+.evidence-gaps li { color: var(--down); }
+
 @media (max-width: 34rem) {
   body { font-size: 16px; }
   .page { padding: 2rem 1rem 3rem; }
@@ -245,8 +255,13 @@ def _run_details(final_state: dict, settings: dict | None) -> list[tuple[str, st
     return details
 
 
-def render_report(ticker: str, final_state: dict, settings: dict | None, parts) -> str:
-    """The report page: title and rating, what produced the run, contents, sections."""
+def render_report(ticker: str, final_state: dict, settings: dict | None, parts,
+                  evidence: dict | None = None) -> str:
+    """The report page: title and rating, what produced the run, contents, sections.
+
+    ``evidence`` (``report_assets.build_evidence()``) prepends the
+    "0. Evidence & charts" section with inline SVG charts and provenance tables.
+    """
     md = _markdown()
     rating = run_rating(final_state) if final_state.get("final_trade_decision") else ""
     tone = _TONE.get(rating, "review")
@@ -261,7 +276,21 @@ def render_report(ticker: str, final_state: dict, settings: dict | None, parts) 
         for label, value in _run_details(final_state, settings)
     )
 
+    evidence_html = ""
+    if evidence:
+        from tradingagents.report_assets import evidence_html as render_evidence
+
+        evidence_html = render_evidence(evidence)
+
     contents, body = [], []
+    if evidence_html:
+        contents.append('<li><a href="#s0"><span class="num">0</span> '
+                        '<span class="label">Evidence &amp; charts</span></a></li>')
+        body.append('<section id="s0"><h2>0. Evidence &amp; charts</h2>'
+                    '<p class="evidence-note">What this analysis actually read. '
+                    "The charts are drawn from the same price rows the analysts' tools "
+                    "served during the run — nothing here is re-fetched after the fact."
+                    f"</p>{evidence_html}</section>")
     for n, (heading, _folder, written) in enumerate(parts, 1):
         agents = "".join(
             f'<li><a href="#s{n}-{m}"><span class="bar"></span> <span class="label">{escape(agent)}</span></a></li>'

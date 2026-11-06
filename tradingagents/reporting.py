@@ -90,15 +90,25 @@ def _report_parts(final_state: dict) -> list[tuple[str, str, list[tuple[str, str
 
 
 def write_report_tree(final_state: dict, ticker: str, save_path, settings: dict | None = None,
-                      html: bool = True) -> Path:
+                      html: bool = True, evidence: dict | None = None) -> Path:
     """Save a completed run's reports to ``save_path``; return the complete-report path.
 
     ``settings`` (``TradingAgentsGraph.run_settings()``) adds what produced the run
     to the report's header. ``html`` also writes ``complete_report.html``, one
-    self-contained page of the same report (#1419).
+    self-contained page of the same report (#1419). ``evidence`` (``report_assets.
+    build_evidence()``) prepends the "0. Evidence & charts" section: the charts are
+    written to ``charts/*.svg`` and the raw pack to ``evidence.json``.
     """
     save_path = Path(save_path)
     save_path.mkdir(parents=True, exist_ok=True)
+
+    evidence_md = ""
+    if evidence:
+        from tradingagents.report_assets import evidence_markdown, write_evidence_files
+
+        write_evidence_files(save_path, evidence)
+        evidence_md = evidence_markdown(evidence)
+
     parts = _report_parts(final_state)
     sections = []
     for heading, folder, written in parts:
@@ -108,13 +118,15 @@ def write_report_tree(final_state: dict, ticker: str, save_path, settings: dict 
         content = "\n\n".join(f"### {agent}\n{text}" for agent, _filename, text in written)
         sections.append(f"## {heading}\n\n{content}")
 
+    body_md = "\n\n".join(([evidence_md.strip()] if evidence_md else []) + sections)
     (save_path / "complete_report.md").write_text(
-        _header(ticker, final_state, settings) + "\n\n".join(sections), encoding="utf-8"
+        _header(ticker, final_state, settings) + body_md, encoding="utf-8"
     )
     if html:
         from tradingagents.report_html import render_report
 
         (save_path / "complete_report.html").write_text(
-            render_report(ticker, final_state, settings, parts), encoding="utf-8"
+            render_report(ticker, final_state, settings, parts, evidence=evidence),
+            encoding="utf-8",
         )
     return save_path / "complete_report.md"
