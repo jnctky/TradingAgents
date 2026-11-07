@@ -69,7 +69,7 @@ def _msg(created_iso, sentiment=None):
 def test_stocktwits_historical_window_excludes_recent(monkeypatch):
     # All messages are "today"; a run as-of a past week must show none of them.
     recent = [_msg("2026-08-30T12:00:00Z", "Bullish"), _msg("2026-08-29T09:00:00Z")]
-    monkeypatch.setattr(stocktwits, "urlopen", lambda *a, **k: _JsonResp({"messages": recent}))
+    monkeypatch.setattr(stocktwits, "_fetch_payload", lambda *a, **k: {"messages": recent})
     out = stocktwits.fetch_stocktwits_messages("AAPL", start_date="2026-05-01", end_date="2026-05-08")
     assert "2026-05-01..2026-05-08" in out
     assert "Bullish: 1" not in out  # the recent bullish message did not leak
@@ -80,7 +80,7 @@ def test_stocktwits_historical_window_excludes_recent(monkeypatch):
 @pytest.mark.unit
 def test_stocktwits_live_window_keeps_in_range(monkeypatch):
     msgs = [_msg("2026-05-05T12:00:00Z", "Bullish"), _msg("2026-05-07T09:00:00Z", "Bearish")]
-    monkeypatch.setattr(stocktwits, "urlopen", lambda *a, **k: _JsonResp({"messages": msgs}))
+    monkeypatch.setattr(stocktwits, "_fetch_payload", lambda *a, **k: {"messages": msgs})
     out = stocktwits.fetch_stocktwits_messages("AAPL", start_date="2026-05-01", end_date="2026-05-08")
     assert "Total: 2" in out
 
@@ -88,7 +88,7 @@ def test_stocktwits_live_window_keeps_in_range(monkeypatch):
 @pytest.mark.unit
 def test_stocktwits_no_window_is_unfiltered(monkeypatch):
     msgs = [_msg("2026-08-30T12:00:00Z", "Bullish")]
-    monkeypatch.setattr(stocktwits, "urlopen", lambda *a, **k: _JsonResp({"messages": msgs}))
+    monkeypatch.setattr(stocktwits, "_fetch_payload", lambda *a, **k: {"messages": msgs})
     out = stocktwits.fetch_stocktwits_messages("AAPL")  # live caller, no dates
     assert "Total: 1" in out
 
@@ -132,7 +132,7 @@ def test_stocktwits_covered_but_empty_window_is_a_real_absence(monkeypatch):
     # The stream reaches back before the window (an older message exists) yet
     # nothing falls inside it: that is genuine silence.
     msgs = [_msg("2026-08-30T12:00:00Z"), _msg("2026-04-20T12:00:00Z")]
-    monkeypatch.setattr(stocktwits, "urlopen", lambda *a, **k: _JsonResp({"messages": msgs}))
+    monkeypatch.setattr(stocktwits, "_fetch_payload", lambda *a, **k: {"messages": msgs})
     out = stocktwits.fetch_stocktwits_messages("AAPL", start_date="2026-05-01", end_date="2026-05-08")
     assert "no StockTwits messages" in out
     assert "unavailable" not in out
@@ -174,7 +174,7 @@ def test_reddit_live_empty_feed_is_a_real_absence(monkeypatch):
 
 @pytest.mark.unit
 def test_stocktwits_empty_stream_for_a_past_window_is_unavailable(monkeypatch):
-    monkeypatch.setattr(stocktwits, "urlopen", lambda *a, **k: _JsonResp({"messages": []}))
+    monkeypatch.setattr(stocktwits, "_fetch_payload", lambda *a, **k: {"messages": []})
     out = stocktwits.fetch_stocktwits_messages("AAPL", start_date="2026-05-01", end_date="2026-05-08")
     assert "unavailable" in out and "not an absence" in out
 

@@ -23,6 +23,9 @@ dependencies = [
     "pytz>=2025.2",
     "questionary>=2.1.0",
     "requests>=2.32.4",
+    # Browser-fingerprinted HTTP: api.stocktwits.com is behind a Cloudflare
+    # fingerprint check that plain urllib fails (403) from any IP.
+    "curl-cffi>=0.7",
     "rich>=14.0.0",
     "typer>=0.21.0",
     "stockstats>=0.6.5",

@@ -10,6 +10,12 @@ The function is deliberately self-contained: short timeout, graceful
 degradation on any HTTP or parse failure, and a string return type so
 the calling agent gets a uniform interface regardless of whether the
 network call succeeded.
+
+Transport note: ``api.stocktwits.com`` sits behind Cloudflare, which judges the
+TLS/JA3 and HTTP/2 frame fingerprint rather than the user agent or the exit IP.
+From one IP, curl and a browser-impersonating client get 200 while urllib gets
+403'd — so requests go through ``curl_cffi`` with a rotating profile list and
+fall back to plain urllib only when that client is not installed.
 """
 
 from __future__ import annotations
@@ -24,7 +30,12 @@ from urllib.request import Request
 
 from tradingagents.dataflows.date_window import coverage_gap, in_window
 from tradingagents.dataflows.symbols import crypto_base
-from tradingagents.dataflows.vendors._net import opener
+from tradingagents.dataflows.vendors._net import opener, requests_proxies
+
+try:  # optional: browser-fingerprinted HTTP client
+    from curl_cffi import requests as _cffi
+except Exception:  # pragma: no cover - exercised only in stripped environments
+    _cffi = None
 
 
 def urlopen(req, timeout=None):
@@ -35,6 +46,71 @@ logger = logging.getLogger(__name__)
 
 _API = "https://api.stocktwits.com/api/2/streams/symbol/{ticker}.json"
 _UA = "tradingagents/0.2 (+https://github.com/TauricResearch/TradingAgents)"
+
+# Cloudflare's allowlist tracks *recent* builds: the generic "chrome" alias (and
+# current Safari/Firefox/Edge profiles) pass, while a pinned old build such as
+# "chrome124" is refused. So the list leads with the alias that follows the
+# newest Chrome and keeps two other engines as fallbacks for the day the alias
+# itself is reclassified.
+_FINGERPRINTS = ("chrome", "safari17_0", "firefox133")
+_CHALLENGE_STATUSES = frozenset({403, 429})
+
+# The profile that last worked, tried first so only the first fetch of a run
+# pays for the 403 round-trip.
+_working_profile: str | None = None
+
+
+class StockTwitsUnavailable(OSError):
+    """The stream could not be read; ``reason`` is a short human-readable label."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _payload_via_urllib(url: str, timeout: float) -> dict:
+    """Plain-urllib path: used only when curl_cffi is not installed."""
+    req = Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})
+    with urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+
+def _payload_via_fingerprint(url: str, timeout: float) -> dict:
+    """Fetch through curl_cffi, retrying the profiles Cloudflare still allows."""
+    global _working_profile
+    order = (([_working_profile] if _working_profile else [])
+             + [p for p in _FINGERPRINTS if p != _working_profile])
+    status = 0
+    for profile in order:
+        try:
+            resp = _cffi.get(
+                url,
+                impersonate=profile,
+                timeout=timeout,
+                headers={"Accept": "application/json"},
+                proxies=requests_proxies(),
+            )
+        except Exception as exc:  # curl_cffi errors are not OSErrors
+            raise StockTwitsUnavailable(type(exc).__name__) from exc
+        status = resp.status_code
+        if status == 200:
+            _working_profile = profile
+            try:
+                return json.loads(resp.content)
+            except ValueError as exc:
+                raise StockTwitsUnavailable("BadJSON") from exc
+        if status not in _CHALLENGE_STATUSES:
+            # Connect worked, this symbol/route is simply not served: trying
+            # another fingerprint cannot change the answer.
+            raise StockTwitsUnavailable(f"HTTP {status}")
+    raise StockTwitsUnavailable(f"blocked ({status})")
+
+
+def _fetch_payload(url: str, timeout: float) -> dict:
+    """GET ``url`` as JSON, bounded to a single transport attempt chain."""
+    if _cffi is None:
+        return _payload_via_urllib(url, timeout)
+    return _payload_via_fingerprint(url, timeout)
 
 
 def _created_at(message) -> datetime | None:
@@ -101,10 +177,13 @@ def fetch_stocktwits_messages(
     caller never has to special-case None or exceptions.
     """
     url = _API.format(ticker=_stocktwits_symbol(ticker))
-    req = Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})
     try:
-        with urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read())
+        data = _fetch_payload(url, timeout)
+    except StockTwitsUnavailable as exc:
+        # A refusal is an expected state for this feed, not a pipeline error:
+        # degrade to a placeholder the agent can read and move past.
+        logger.warning("StockTwits unavailable for %s: %s", ticker, exc.reason)
+        return f"<stocktwits unavailable: {exc.reason}>"
     except (OSError, http.client.HTTPException, json.JSONDecodeError) as exc:
         # OSError covers URLError/TimeoutError/connection resets; HTTPException
         # covers chunked-transfer errors (IncompleteRead/BadStatusLine, #1024).
