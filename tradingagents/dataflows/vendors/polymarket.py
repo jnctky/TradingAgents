@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 import requests
 
 from tradingagents.dataflows.date_window import is_historical
+from tradingagents.dataflows.vendors._net import requests_proxies
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,13 @@ DEFAULT_LIMIT = 6
 
 
 def _request(path: str, params: dict) -> dict:
+    # Pinned to the user's local proxy for the same reason as Reddit and
+    # StockTwits (_net.py): a direct connection is challenged from mainland
+    # China, and the ambient proxy variables — when a session even sets them —
+    # point at a proxy that refuses this host.
     response = requests.get(
-        f"{GAMMA_BASE}/{path}", params=params, timeout=REQUEST_TIMEOUT
+        f"{GAMMA_BASE}/{path}", params=params, timeout=REQUEST_TIMEOUT,
+        proxies=requests_proxies(),
     )
     response.raise_for_status()
     return response.json()
@@ -44,6 +50,10 @@ def _parse_json_list(value) -> list:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):
         return []
+
+
+class PolymarketUnavailable(RuntimeError):
+    """The Gamma API answered with a network error, so no odds can be reported."""
 
 
 def _is_forward_looking(market: dict, now: datetime) -> bool:
@@ -65,6 +75,57 @@ def _is_forward_looking(market: dict, now: datetime) -> bool:
     return bool(_parse_json_list(market.get("outcomePrices"))) and bool(
         _parse_json_list(market.get("outcomes"))
     )
+
+
+def search_markets(
+    topic: str, limit: int | None = None, now: datetime | None = None
+) -> list[dict]:
+    """Open, forward-looking markets matching ``topic``, richest first.
+
+    The structured twin of :func:`get_prediction_markets`, for callers that
+    store odds instead of printing them. A network failure raises
+    :class:`PolymarketUnavailable`, so a caller holding a snapshot can tell
+    "the crowd has no view" from "we could not ask".
+    """
+    if limit is None:
+        limit = DEFAULT_LIMIT
+    try:
+        data = _request("public-search", {"q": topic, "limit_per_type": 20})
+    except requests.RequestException as e:
+        raise PolymarketUnavailable(str(e)) from e
+
+    now = now or datetime.now(UTC)
+    candidates = [
+        m
+        for event in data.get("events", [])
+        for m in event.get("markets", [])
+        if _is_forward_looking(m, now)
+    ]
+    candidates.sort(key=lambda m: m.get("volumeNum") or 0, reverse=True)
+
+    markets = []
+    for m in candidates[:limit]:
+        prices = _parse_json_list(m.get("outcomePrices"))
+        outcomes = _parse_json_list(m.get("outcomes"))
+        try:
+            prob = float(prices[0])
+        except (ValueError, IndexError):
+            continue
+        volume = m.get("volumeNum") or 0
+        week = m.get("oneWeekPriceChange")
+        markets.append({
+            "question": m.get("question"),
+            "outcome": outcomes[0] if outcomes else "Yes",
+            "probability": round(prob, 4),
+            "volume_usd": int(volume) if isinstance(volume, (int, float)) else 0,
+            "resolves": (m.get("endDate") or "")[:10] or None,
+            # Percentage points, the unit a move in a probability is read in.
+            "week_change_pp": round(week * 100, 1)
+            if isinstance(week, (int, float)) and week
+            else None,
+            "slug": m.get("slug") or (m.get("events") or [{}])[0].get("slug"),
+        })
+    return markets
 
 
 def get_prediction_markets(topic: str, limit: int | None = None, as_of_date: str | None = None) -> str:
@@ -89,26 +150,14 @@ def get_prediction_markets(topic: str, limit: int | None = None, as_of_date: str
             f"only live odds on open markets, with no historical vintage, so serving "
             f"them would put post-decision information into a {as_of_date} analysis."
         )
-    if limit is None:
-        limit = DEFAULT_LIMIT
-
     try:
-        data = _request("public-search", {"q": topic, "limit_per_type": 20})
-    except requests.RequestException as e:
+        markets = search_markets(topic, limit)
+    except PolymarketUnavailable as e:
         logger.warning("Polymarket search failed for %r: %s", topic, e)
         return (
             f"Polymarket data is currently unavailable (network error: {e}). "
             f"Proceed without prediction-market signal for '{topic}'."
         )
-
-    now = datetime.now(UTC)
-    candidates = [
-        m
-        for event in data.get("events", [])
-        for m in event.get("markets", [])
-        if _is_forward_looking(m, now)
-    ]
-    candidates.sort(key=lambda m: m.get("volumeNum") or 0, reverse=True)
 
     header = (
         f'## Polymarket prediction markets: "{topic}"\n'
@@ -117,7 +166,7 @@ def get_prediction_markets(topic: str, limit: int | None = None, as_of_date: str
         f"not a forecast you should take as certain.\n\n"
     )
 
-    if not candidates:
+    if not markets:
         return header + (
             f"No open prediction markets matched '{topic}'. Polymarket coverage "
             f"is concentrated in macro, political, geopolitical, and crypto "
@@ -125,25 +174,12 @@ def get_prediction_markets(topic: str, limit: int | None = None, as_of_date: str
         )
 
     lines = []
-    for m in candidates[:limit]:
-        prices = _parse_json_list(m.get("outcomePrices"))
-        outcomes = _parse_json_list(m.get("outcomes"))
-        try:
-            prob = float(prices[0])
-        except (ValueError, IndexError):
-            continue
-        label = outcomes[0] if outcomes else "Yes"
-        volume = m.get("volumeNum") or 0
-        end_date = (m.get("endDate") or "")[:10]
-        wk = m.get("oneWeekPriceChange")
-        wk_str = (
-            f", 1-week {wk * 100:+.1f}pp"
-            if isinstance(wk, (int, float)) and wk
-            else ""
-        )
+    for m in markets:
+        wk = m["week_change_pp"]
+        wk_str = f", 1-week {wk:+.1f}pp" if wk is not None else ""
         lines.append(
-            f"- **{m.get('question')}** — {label} {prob:.0%} "
-            f"(${volume:,.0f} volume, resolves {end_date}{wk_str})"
+            f"- **{m['question']}** — {m['outcome']} {m['probability']:.0%} "
+            f"(${m['volume_usd']:,.0f} volume, resolves {m['resolves'] or ''}{wk_str})"
         )
 
     return header + "\n".join(lines) + "\n"

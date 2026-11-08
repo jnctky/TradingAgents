@@ -182,16 +182,26 @@ def get_macro_context_from_state(state: Mapping[str, Any]) -> str:
     reads the same text instead of re-deriving a backdrop from its own tools. An
     empty result means the backdrop could not be built (dead platform route, no
     readings) — callers drop the block rather than render an empty heading.
+
+    The date's calendar and political headlines ride along in the same prompt
+    slot: they are the other half of "what kind of day is this", are settled by
+    the same node, and every consumer of the macro block wants them.
     """
+    blocks = []
     context = state.get("macro_context")
     if isinstance(context, str) and context.strip():
-        return context
-    snapshot = state.get("macro_snapshot") or {}
-    if snapshot.get("readings"):
-        from tradingagents.dataflows.vendors.macro_context import snapshot_prompt_context
+        blocks.append(context)
+    else:
+        snapshot = state.get("macro_snapshot") or {}
+        if snapshot.get("readings"):
+            from tradingagents.dataflows.vendors.macro_context import snapshot_prompt_context
 
-        return snapshot_prompt_context(snapshot)
-    return ""
+            blocks.append(snapshot_prompt_context(snapshot))
+
+    date_block = state.get("date_context_prompt")
+    if isinstance(date_block, str) and date_block.strip():
+        blocks.append(date_block)
+    return "\n\n".join(blocks)
 
 
 def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:

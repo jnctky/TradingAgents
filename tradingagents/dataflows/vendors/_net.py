@@ -1,9 +1,10 @@
-"""Outbound-network helpers for the social-sentiment vendors.
+"""Outbound-network helpers for vendors that live behind the mainland firewall.
 
-StockTwits and Reddit are blocked or challenged from mainland China on a direct
-connection, so those two vendors dial the user's local proxy explicitly instead
-of relying on ambient proxy variables (the WorkBuddy session injects its own
-proxy on 55xxx, which these hosts reject).
+StockTwits, Reddit and Polymarket's Gamma API are blocked or challenged from
+mainland China on a direct connection, so these vendors dial the user's local
+proxy explicitly instead of relying on ambient proxy variables (the WorkBuddy
+session injects its own proxy on 55xxx/64xxx, which these hosts reject, and a
+plain terminal has none set at all).
 
 Override the proxy with ``TRADINGAGENTS_SENTIMENT_PROXY``; set it to an empty
 string to force a direct connection.
@@ -27,3 +28,9 @@ def opener():
     proxy = sentiment_proxy()
     handler = ProxyHandler({"http": proxy, "https": proxy}) if proxy else ProxyHandler({})
     return build_opener(handler)
+
+
+def requests_proxies() -> dict[str, str] | None:
+    """The same proxy as a ``requests`` argument; None means direct."""
+    proxy = sentiment_proxy()
+    return {"http": proxy, "https": proxy} if proxy else None

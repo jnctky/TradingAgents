@@ -86,6 +86,11 @@ def build_default_config() -> dict:
         # One macro snapshot per analysis date, shared by every ticker: the data
         # is fetched once and the narrative is written once (#macro-once).
         "macro_context_dir": os.getenv("TRADINGAGENTS_MACRO_DIR") or os.path.join(_TRADINGAGENTS_HOME, "cache", "macro_context"),
+        # Per-date calendar and political backdrop, also fetched once a day.
+        "date_context_dir": os.getenv("TRADINGAGENTS_DATE_CONTEXT_DIR") or os.path.join(_TRADINGAGENTS_HOME, "cache", "date_context"),
+        # Dated Polymarket snapshots: written the day they are taken, read only
+        # by a run dated on or after that day (no look-ahead).
+        "politics_odds_dir": os.getenv("TRADINGAGENTS_POLITICS_ODDS_DIR") or os.path.join(_TRADINGAGENTS_HOME, "cache", "politics_odds"),
         "memory_log_path": os.getenv("TRADINGAGENTS_MEMORY_LOG_PATH") or os.path.join(_TRADINGAGENTS_HOME, "memory", "trading_memory.md"),
         # Optional cap on the number of resolved memory log entries. When set,
         # the oldest resolved entries are pruned once this limit is exceeded.

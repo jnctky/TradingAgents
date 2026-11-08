@@ -133,3 +133,65 @@ def test_the_header_names_the_analysts_as_users_select_them(tmp_path):
     page = (tmp_path / "complete_report.html").read_text(encoding="utf-8")
     fields = re.findall(r'<span class="field">([^<]*)</span>', page)
     assert {"market", "sentiment", "news"} <= set(fields) and "social" not in page
+
+
+def _date_context():
+    """The shape build_date_context() caches: events, politics, odds."""
+    return {
+        "trade_date": "2026-11-06",
+        "events": {"published": [{"date": "2026-11-05", "event": "CPI", "actual": "3.1%",
+                                  "consensus": "3.2%", "previous": "3.0%",
+                                  "surprise": {"direction": "below", "delta": -0.1, "unit": "pp"}}],
+                   "upcoming": [{"date": "2026-11-10", "event": "FOMC", "consensus": "-",
+                                 "previous": "-"}]},
+        "politics": {"available": True, "source": "OpenBB", "scanned": 40,
+                     "window": ["2026-11-03", "2026-11-06"],
+                     "topics": [{"label": "Government shutdown",
+                                 "articles": [{"date": "2026-11-06", "title": "Talks resume",
+                                               "url": "https://example.com/a"}]}]},
+        "odds": {"available": True, "as_of": "2026-11-05T14:00:00Z", "markets":
+                 [{"question": "Shutdown by Dec 12?", "outcome": "Yes",
+                   "probability": 0.26, "volume_usd": 1234, "week_change_pp": None}]},
+    }
+
+
+@pytest.mark.unit
+def test_the_backdrop_section_carries_the_dates_events_politics_and_odds(tmp_path):
+    state = dict(_state(), date_context=_date_context())
+
+    complete = write_report_tree(state, "NVDA", tmp_path, html=True).read_text()
+
+    assert "## 0.5 Macro & event backdrop" in complete
+    assert "### Economic events" in complete and "| CPI |" in complete
+    assert "### Political backdrop (2026-11-03 to 2026-11-06)" in complete
+    assert "Talks resume" in complete
+    assert "Shutdown by Dec 12?" in complete
+    # The HTML page carries the same subsections.
+    page = (tmp_path / "complete_report.html").read_text(encoding="utf-8")
+    assert "Macro &amp; event backdrop" in page and "Talks resume" in page
+
+
+@pytest.mark.unit
+def test_a_run_without_a_date_context_keeps_the_old_backdrop_section(tmp_path):
+    complete = write_report_tree(_state(), "NVDA", tmp_path, html=True).read_text()
+
+    assert "0.5" not in complete.split("## I.")[0]
+    page = (tmp_path / "complete_report.html").read_text(encoding="utf-8")
+    assert "s05" not in page
+
+
+@pytest.mark.unit
+def test_a_date_context_with_only_a_dead_feed_still_degrades_per_part(tmp_path):
+    ctx = _date_context()
+    ctx["politics"] = {"error": "HTTPError", "available": False, "reason": "feed down",
+                       "topics": [], "window": ["2026-11-06", "2026-11-06"],
+                       "source": "OpenBB", "scanned": 0}
+    ctx["odds"] = {"available": False, "reason": "no snapshot", "markets": []}
+
+    complete = write_report_tree(dict(_state(), date_context=ctx), "NVDA", tmp_path).read_text()
+
+    assert "| CPI |" in complete
+    # The politics half carries an error, so the block degrades on its own…
+    assert "The news feed was unavailable for this run (HTTPError)" in complete
+    # …and the odds half still renders its own "none" line, not an exception.
+    assert "Prediction-market odds: none" in complete and "no snapshot" in complete

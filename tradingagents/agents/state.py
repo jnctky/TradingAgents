@@ -58,6 +58,9 @@ class AgentState(MessagesState):
     macro_report: Annotated[str, "Macro backdrop narrative: the environment this ticker trades in"]
     macro_snapshot: Annotated[dict, "Rule-based macro readings and regime tags for the analysis date"]
     macro_context: Annotated[str, "Compact macro backdrop handed to the analysts' prompts"]
+    # calendar, political headlines and priced odds, also settled once per date
+    date_context: Annotated[dict, "Events, political headlines and odds for the analysis date"]
+    date_context_prompt: Annotated[str, "The same date context rendered for the analysts' prompts"]
 
     # researcher team discussion step
     investment_debate_state: Annotated[
