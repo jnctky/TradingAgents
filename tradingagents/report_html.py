@@ -288,6 +288,15 @@ def render_report(ticker: str, final_state: dict, settings: dict | None, parts,
 
         macro_md = macro_section_markdown(final_state).strip()
 
+    date_md = ""
+    date_ctx = final_state.get("date_context") or {}
+    if date_ctx.get("events") or date_ctx.get("politics"):
+        from tradingagents.dataflows.date_context import context_markdown
+
+        date_md = context_markdown(date_ctx).strip()
+
+    backdrop_md = "\n\n".join(block for block in (macro_md, date_md) if block)
+
     contents, body = [], []
     if evidence_html:
         contents.append('<li><a href="#s0"><span class="num">0</span> '
@@ -297,15 +306,16 @@ def render_report(ticker: str, final_state: dict, settings: dict | None, parts,
                     "The charts are drawn from the same price rows the analysts' tools "
                     "served during the run — nothing here is re-fetched after the fact."
                     f"</p>{evidence_html}</section>")
-    if macro_md:
+    if backdrop_md:
         contents.append('<li><a href="#s05"><span class="num">0.5</span> '
-                        '<span class="label">Macro backdrop</span></a></li>')
-        body.append('<section id="s05"><h2>0.5 Macro backdrop</h2>'
+                        '<span class="label">Macro &amp; event backdrop</span></a></li>')
+        body.append('<section id="s05"><h2>0.5 Macro &amp; event backdrop</h2>'
                     '<p class="evidence-note">The environment this ticker was analysed in, '
                     "settled once for the analysis date and shared by every ticker that day. "
-                    "The narrative is the model's; the readings and regime tags below it are "
-                    "fixed rules over the same series, each stating its own basis."
-                    f"</p>{md.render(macro_md)}</section>")
+                    "The narrative is the model's; the readings, the release table and the "
+                    "headlines below it are fixed rules over the same sources, each stating "
+                    "its own basis."
+                    f"</p>{md.render(backdrop_md)}</section>")
     for n, (heading, _folder, written) in enumerate(parts, 1):
         agents = "".join(
             f'<li><a href="#s{n}-{m}"><span class="bar"></span> <span class="label">{escape(agent)}</span></a></li>'

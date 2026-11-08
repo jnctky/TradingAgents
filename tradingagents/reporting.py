@@ -115,6 +115,17 @@ def write_report_tree(final_state: dict, ticker: str, save_path, settings: dict 
 
     macro_md = macro_section_markdown(final_state).strip()
 
+    # The date's calendar, political headlines and priced odds: also settled
+    # once per date (the macro node), rendered as subsections of the same
+    # backdrop section — a report that argues from a CPI print should show the
+    # print's numbers at the top, not make the reader trust the prose.
+    date_md = ""
+    date_ctx = final_state.get("date_context") or {}
+    if date_ctx.get("events") or date_ctx.get("politics"):
+        from tradingagents.dataflows.date_context import context_markdown
+
+        date_md = context_markdown(date_ctx).strip()
+
     parts = _report_parts(final_state)
     sections = []
     for heading, folder, written in parts:
@@ -124,9 +135,11 @@ def write_report_tree(final_state: dict, ticker: str, save_path, settings: dict 
         content = "\n\n".join(f"### {agent}\n{text}" for agent, _filename, text in written)
         sections.append(f"## {heading}\n\n{content}")
 
-    body_md = "\n\n".join(([evidence_md.strip()] if evidence_md else [])
-                          + ([f"## 0.5 Macro backdrop\n\n{macro_md}"] if macro_md else [])
-                          + sections)
+    backdrop_md = "\n\n".join(block for block in (macro_md, date_md) if block)
+    body_md = "\n\n".join(
+        ([evidence_md.strip()] if evidence_md else [])
+        + ([f"## 0.5 Macro & event backdrop\n\n{backdrop_md}"] if backdrop_md else [])
+        + sections)
     (save_path / "complete_report.md").write_text(
         _header(ticker, final_state, settings) + body_md, encoding="utf-8"
     )
