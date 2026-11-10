@@ -2,6 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.analysts.turn import take_turn
 from tradingagents.agents.context import (
+    get_horizon_instruction_from_state,
     get_instrument_context_from_state,
     get_language_instruction,
     get_macro_context_from_state,
@@ -54,6 +55,7 @@ Before writing the final report, call get_verified_market_snapshot for this tick
 
 Write a very detailed and nuanced report of the trends you observe. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."""
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
+            + get_horizon_instruction_from_state(state)
             + get_language_instruction()
         )
 

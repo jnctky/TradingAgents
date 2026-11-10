@@ -10,7 +10,9 @@ free-text generation and the rating is read from that text.
 
 from __future__ import annotations
 
+from tradingagents import horizon as horizon_mod
 from tradingagents.agents.context import (
+    get_horizon_instruction_from_state,
     get_instrument_context_from_state,
     get_language_instruction,
     get_portfolio_context_from_state,
@@ -44,7 +46,7 @@ def create_portfolio_manager(llm):
 {instrument_context}
 
 {portfolio_context}
-
+{get_horizon_instruction_from_state(state)}
 ---
 
 **Rating Scale** (use exactly one):
@@ -80,6 +82,11 @@ Write these sections, in this order, starting with the rating on its own line:
         # Read back from text, a rating the thesis quotes could replace it.
         decision = invoke_structured(structured_llm, prompt, "Portfolio Manager")
         if decision is not None:
+            # The period is an input of this run, not a suggestion the model
+            # may restate: it is written here so a rendered report cannot
+            # carry a horizon the batch never asked for.
+            decision.time_horizon = horizon_mod.render_hold(
+                str(state.get("horizon") or horizon_mod.DEFAULT_HORIZON))
             final_trade_decision = render_pm_decision(decision)
             final_rating = decision.rating.value
         else:

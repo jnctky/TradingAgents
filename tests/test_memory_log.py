@@ -797,7 +797,10 @@ class TestPortfolioManagerInjection:
         assert "**Executive Summary**: Build position gradually" in md
         assert "**Investment Thesis**: AI capex cycle" in md
         assert "**Price Target**: 215.0" in md
-        assert "**Time Horizon**: 3-6 months" in md
+        # The horizon is an input of the run, not the model's suggestion: the
+        # node overwrites whatever the model said with the run's own period
+        # (unmarked state -> the default, position).
+        assert "**Time Horizon**: 1 至 3 个月" in md
 
     def test_pm_falls_back_to_freetext_when_structured_unavailable(self):
         """If a provider does not support with_structured_output, the agent

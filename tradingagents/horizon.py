@@ -36,6 +36,9 @@ class Horizon:
     label_en: str
     #: How long a position from this run is meant to be held, as shown to a reader.
     hold_zh: str
+    #: The same period in English, for the prompt block (prompts stay English
+    #: even when the report is rendered in another language).
+    hold_en: str
     #: The same period in calendar days, for checking what a decision claims.
     hold_lo_days: int
     hold_hi_days: int
@@ -65,6 +68,7 @@ HORIZONS: dict[str, Horizon] = {
         label_zh="超短",
         label_en="Ultra-short",
         hold_zh="隔夜至 5 个交易日",
+        hold_en="one night to five trading sessions",
         hold_lo_days=1,
         hold_hi_days=7,
         window_days=60,
@@ -91,6 +95,7 @@ HORIZONS: dict[str, Horizon] = {
         label_zh="波段",
         label_en="Swing",
         hold_zh="2 周至 2 个月",
+        hold_en="two weeks to two months",
         hold_lo_days=14,
         hold_hi_days=60,
         window_days=120,
@@ -116,6 +121,7 @@ HORIZONS: dict[str, Horizon] = {
         label_zh="中线",
         label_en="Position",
         hold_zh="1 至 3 个月",
+        hold_en="one to three months",
         hold_lo_days=30,
         hold_hi_days=90,
         window_days=250,
@@ -141,6 +147,7 @@ HORIZONS: dict[str, Horizon] = {
         label_zh="长线",
         label_en="Long-term",
         hold_zh="6 至 18 个月",
+        hold_en="six to eighteen months",
         hold_lo_days=180,
         hold_hi_days=548,
         window_days=500,
@@ -213,17 +220,21 @@ def instruction(code: str, reference_price: float | None = None) -> str:
     Injected into every agent that can move the conclusion, because a horizon
     enforced only at the Portfolio Manager would leave four analysts arguing a
     different question and the manager guessing which answer was meant.
+
+    Analysts run before any price is known to the prompt, so without a
+    ``reference_price`` the band is anchored to the analysis-time price — the
+    same price the validator later measures against.
     """
     h = get(code)
-    ref = (f" Reference price for the target-price rule: {reference_price:g}."
-           if reference_price else "")
+    anchor = (f"the reference price ({reference_price:g})" if reference_price
+              else "the price at the time of analysis")
     rules = "\n".join(f"- {rule}" for rule in h.rules)
     return (
-        f"\n\n## Trading horizon: {h.label_en} ({h.hold_zh})\n\n"
-        f"Every conclusion in this run answers for a holding period of {h.hold_zh}. "
-        f"Target-price band: {h.target_text} from the reference price. "
+        f"\n\n## Trading horizon: {h.label_en} ({h.hold_en} / {h.hold_zh})\n\n"
+        f"Every conclusion in this run answers for a holding period of {h.hold_en}. "
+        f"Target-price band: {h.target_text} from {anchor}. "
         f"Stop rule: {h.stop_text}. Risk budget: {h.risk_budget_pct}% of the book per position."
-        f"{ref}\n\n{rules}\n"
+        f"\n\n{rules}\n"
         "- If the evidence only supports a call on a different period, say so explicitly"
         " and do not relabel it into this one.\n"
     )

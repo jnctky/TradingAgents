@@ -236,6 +236,23 @@ def report_or_absent(text: str, source: str) -> str:
     return f"(No {source} report in this run: it is not available, not an empty finding.)"
 
 
+def get_horizon_instruction_from_state(state: Mapping[str, Any]) -> str:
+    """The horizon playbook for this run, or "" when none is set.
+
+    A horizon enforced only at the Portfolio Manager would leave the analysts
+    arguing a different question and the manager guessing which answer was
+    meant, so every agent that can move the conclusion gets the same block.
+    Unmarked states (bare programmatic states, tests) stay silent rather than
+    suddenly adding a constraint the caller never chose.
+    """
+    code = state.get("horizon")
+    if not code:
+        return ""
+    from tradingagents import horizon
+
+    return horizon.instruction(horizon.resolve(str(code)))
+
+
 def get_portfolio_context_from_state(state: Mapping[str, Any]) -> str:
     """Return the caller's portfolio block, or a notice that none was given.
 
