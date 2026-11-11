@@ -145,18 +145,25 @@ def get_prediction_markets(topic: str, limit: int | None = None, as_of_date: str
         recent (1-week) move.
     """
     if is_historical(as_of_date):
+        # The sentinel prefix is what makes this visible to the integrity
+        # table: returning a bare paragraph would be recorded as a successful
+        # call, and the report would then claim 预测市场 正常 while the analyst
+        # body says the odds were withheld.
         return (
-            f"Prediction-market odds are withheld for {as_of_date}. Polymarket serves "
-            f"only live odds on open markets, with no historical vintage, so serving "
-            f"them would put post-decision information into a {as_of_date} analysis."
+            f"DATA_UNAVAILABLE: prediction-market odds are withheld for {as_of_date} — "
+            f"Polymarket serves only live odds on open markets, with no historical "
+            f"vintage, so serving them would put post-decision information into a "
+            f"{as_of_date} analysis. Do not quote or estimate any implied probability "
+            f"for this date."
         )
     try:
         markets = search_markets(topic, limit)
     except PolymarketUnavailable as e:
         logger.warning("Polymarket search failed for %r: %s", topic, e)
         return (
-            f"Polymarket data is currently unavailable (network error: {e}). "
-            f"Proceed without prediction-market signal for '{topic}'."
+            f"DATA_UNAVAILABLE: Polymarket could not be reached for '{topic}' "
+            f"(network error: {e}). Proceed without prediction-market signal; do not "
+            f"estimate a probability in its place."
         )
 
     header = (

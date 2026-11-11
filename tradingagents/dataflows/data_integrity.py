@@ -56,6 +56,11 @@ CATEGORY_LABELS: dict[str, str] = {
     # these rows the header could claim "完整" while the body listed both feeds
     # as missing.
     "sentiment_data": "情绪（StockTwits / Reddit）",
+    # Built by date_context outside the router; traced so a 422 calendar or a
+    # 0-byte political feed shows up in the table instead of appearing only in
+    # the analyst's prose.
+    "events": "经济日历",
+    "politics": "政治头条",
 }
 
 STATUS_LABELS = {
@@ -70,6 +75,11 @@ STATUS_LABELS = {
 #: for the instrument (crypto fundamentals). Distinct from a failure: nothing
 #: was unreachable, there is simply no such statement to fetch.
 NOT_APPLICABLE_VENDOR = "not_applicable"
+
+#: Sentinel the vendors return when they could not answer. A payload that
+#: starts with it arrived as a 200 with text, so it used to count as "success"
+#: — the table said 正常 while the analyst body said 无法给出.
+UNAVAILABLE_PREFIX = "DATA_UNAVAILABLE"
 
 
 def summarize_trace(trace_path: str | Path | None) -> dict[str, Any] | None:
@@ -98,13 +108,16 @@ def summarize_trace(trace_path: str | Path | None) -> dict[str, Any] | None:
         category = str(record.get("category") or "")
         if not category:
             continue
-        bucket = per.setdefault(category, {"ok": 0, "fail": 0, "zero_bytes": 0, "na": 0, "ms": 0})
+        bucket = per.setdefault(category, {"ok": 0, "fail": 0, "zero_bytes": 0,
+                                           "na": 0, "withheld": 0, "ms": 0})
         bucket["ms"] += int(record.get("ms") or 0)
         if record.get("vendor") == NOT_APPLICABLE_VENDOR:
             bucket["na"] += 1
         elif record.get("ok"):
             if (record.get("chars") or 0) == 0:
                 bucket["zero_bytes"] += 1
+            elif str(record.get("sample") or "").lstrip().startswith(UNAVAILABLE_PREFIX):
+                bucket["withheld"] += 1
             else:
                 bucket["ok"] += 1
         else:
@@ -112,8 +125,8 @@ def summarize_trace(trace_path: str | Path | None) -> dict[str, Any] | None:
 
     categories: dict[str, Any] = {}
     for category, bucket in per.items():
-        attempted = bucket["ok"] + bucket["fail"] + bucket["zero_bytes"]
-        if bucket["ok"] and not bucket["fail"] and not bucket["zero_bytes"]:
+        attempted = bucket["ok"] + bucket["fail"] + bucket["zero_bytes"] + bucket["withheld"]
+        if bucket["ok"] and not bucket["fail"] and not bucket["zero_bytes"] and not bucket["withheld"]:
             status = "ok"
         elif bucket["ok"]:
             status = "partial"
@@ -122,6 +135,10 @@ def summarize_trace(trace_path: str | Path | None) -> dict[str, Any] | None:
             # issuer statements. Reporting that as a fetch failure would put a
             # phantom "数据不完整" on every crypto report.
             status = "na"
+        elif bucket["withheld"] and not bucket["fail"] and not bucket["zero_bytes"]:
+            # The vendor answered "I will not serve this" (Polymarket live-only
+            # odds on a historical date): not an outage, but not 正常 either.
+            status = "withheld"
         elif category == "prediction_markets" and attempted == bucket["fail"]:
             # The live-odds vendor deliberately withholds historical vintages;
             # its sentinel text is a design answer, not an outage.
@@ -190,20 +207,52 @@ def markdown(integrity: dict[str, Any] | None) -> str:
         return "\n".join(lines + ["- 取数轨迹缺失：无法核实本次分析读取了哪些数据。"
                                   "按数据完整性原则，本报告的全部结论视为未经数据校验。", ""])
 
-    lines += ["| 数据依赖 | 状态 | 成功 | 失败 | 0字节 |", "|---|---|---:|---:|---:|"]
+    # A "withheld" row answered 200 with a refusal sentinel: showing 正常 for it
+    # is the contradiction this column exists to kill. The column only appears
+    # when some category actually has one, so ordinary days stay narrow.
+    has_withheld = any((b.get("withheld") or 0) > 0 for b in categories.values())
+    header = "| 数据依赖 | 状态 | 成功 | 失败 | 0字节 |" + (" 按设计不给 |" if has_withheld else "")
+    rule = "|---|---|---:|---:|---:|" + ("---:|" if has_withheld else "")
+    lines += [header, rule]
     for category, bucket in sorted(categories.items()):
         label = CATEGORY_LABELS.get(category, category)
         status = STATUS_LABELS.get(bucket.get("status"), bucket.get("status"))
-        lines.append(f"| {label} | {status} | {bucket.get('ok', 0)} | "
-                     f"{bucket.get('fail', 0)} | {bucket.get('zero_bytes', 0)} |")
+        row = (f"| {label} | {status} | {bucket.get('ok', 0)} | "
+               f"{bucket.get('fail', 0)} | {bucket.get('zero_bytes', 0)} |")
+        if has_withheld:
+            row += f" {bucket.get('withheld', 0)} |"
+        lines.append(row)
     lines.append("")
+
+    # Categories that did not read cleanly but are not required for a priced
+    # conclusion (sentiment, prediction markets, calendar, politics). They must
+    # still be named here: the analyst body says 无法给出 for them, and a
+    # table that stayed silent would look like a contradiction.
+    soft = [(c, b) for c, b in sorted(categories.items())
+            if b.get("status") not in ("ok", "na")]
+    required_set = set(REQUIRED_CATEGORIES) | (
+        {"fundamental_data"} if "fundamental_data" in categories else set())
+    soft_notes = "、".join(
+        f"{CATEGORY_LABELS.get(c, c)} {STATUS_LABELS.get(b.get('status'), b.get('status'))}"
+        for c, b in soft if c not in required_set
+    )
 
     price_failed = failed_price_categories(integrity)
     if integrity.get("complete"):
-        lines += ["**结论：本次分析依赖的数据完整。**", ""]
+        if soft_notes:
+            lines += [
+                "**结论：本次分析所需的核心数据（行情、技术指标、新闻）完整。** "
+                f"另有非必需数据未能取得：{soft_notes}——相关结论已在正文中标明"
+                "「无法给出」，未以任何替代数据补齐。",
+                "",
+            ]
+        else:
+            lines += ["**结论：本次分析依赖的数据完整。**", ""]
     else:
         missing = "、".join(CATEGORY_LABELS.get(c, c) for c in integrity.get("missing") or [])
         lines += [f"**结论：本次分析数据不完整**（缺失：{missing}）。", ""]
+        if soft_notes:
+            lines += [f"- 另有非必需数据未能取得：{soft_notes}——同样不参与结论。"]
         if price_failed:
             names = "、".join(CATEGORY_LABELS.get(c, c) for c in price_failed)
             lines += [

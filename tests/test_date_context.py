@@ -7,6 +7,7 @@ batch that quietly refetched twenty times would still look correct in the report
 
 from __future__ import annotations
 
+import json
 import os
 import time
 
@@ -125,3 +126,45 @@ def test_the_prompt_block_names_both_sections(store, calls):
     block = dc.prompt_block(dc.build_date_context(TODAY))
     assert "Economic events around the analysis date" in block
     assert "Political headlines" in block
+
+
+def test_a_dead_calendar_reaches_the_trace_instead_of_only_the_prose(store, calls,
+                                                                     tmp_path, monkeypatch):
+    # The analyst body already said "日历不可用"; the integrity table said every
+    # row 正常 because the builder swallowed the error without a trace record.
+    trace = tmp_path / "trace.jsonl"
+    monkeypatch.setenv("TA_TRACE_FILE", str(trace))
+
+    def dead(_date):
+        raise RuntimeError("economic calendar returned 422")
+
+    monkeypatch.setattr(dc, "fetch_events", dead)
+    monkeypatch.setattr(dc, "fetch_politics", lambda d: {
+        "trade_date": d, "window": [d, d], "source": "feed", "scanned": 3,
+        "available": True, "topics": [{"label": "Tariffs", "articles": [{"title": "x"}]}],
+    })
+    dc.build_date_context(TODAY)
+
+    rows = [json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()]
+    by_category = {row["category"]: row for row in rows}
+    assert by_category["events"]["ok"] is False
+    assert "422" in by_category["events"]["error"]
+    assert by_category["politics"]["ok"] is True
+
+
+def test_a_zero_byte_political_feed_is_traced_as_a_failure(store, calls, tmp_path, monkeypatch):
+    trace = tmp_path / "trace.jsonl"
+    monkeypatch.setenv("TA_TRACE_FILE", str(trace))
+
+    def empty(_date):
+        return {"trade_date": _date, "available": False, "topics": [], "scanned": 0,
+                "reason": "feed returned 0 bytes"}
+
+    monkeypatch.setattr(dc, "fetch_politics", empty)
+    dc.build_date_context(TODAY)
+
+    rows = [json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()]
+    politics = next(row for row in rows if row["category"] == "politics")
+    # An available=False payload is a miss even though no exception was raised.
+    assert politics["ok"] is False
+    assert "0 bytes" in politics["error"]

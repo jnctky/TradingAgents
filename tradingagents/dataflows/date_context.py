@@ -26,6 +26,7 @@ from typing import Any
 
 from tradingagents.dataflows.config import get_config
 from tradingagents.dataflows.date_window import get_current_date, is_historical
+from tradingagents.dataflows.trace import record_call, stopwatch
 from tradingagents.dataflows.vendors.events import (
     events_markdown,
     events_prompt_block,
@@ -102,18 +103,43 @@ def build_date_context(trade_date: str, *, refresh: bool = False) -> dict[str, A
                 return cached
 
     try:
-        events: dict[str, Any] = fetch_events(trade_date)
+        with stopwatch() as watch:
+            events: dict[str, Any] = fetch_events(trade_date)
+        record_call(method="economic_calendar", category="events", vendor="openbb",
+                    chain=["openbb"], args=(trade_date,), kwargs={}, ms=watch.ms,
+                    result=events)
     except Exception as exc:  # noqa: BLE001 — a dead calendar must not stop the run
         logger.warning("Economic calendar unavailable for %s: %s", trade_date, exc)
         events = {"error": f"{type(exc).__name__}: {exc}"}
+        # Traced as a failure on purpose: the analyst body quotes the error, so
+        # a table that stayed silent would read as "everything was fine".
+        record_call(method="economic_calendar", category="events", vendor="openbb",
+                    chain=["openbb"], args=(trade_date,), kwargs={}, ms=0,
+                    error=str(exc))
 
     try:
-        politics: dict[str, Any] = fetch_politics(trade_date)
+        with stopwatch() as watch:
+            politics: dict[str, Any] = fetch_politics(trade_date)
+        # The vendor can answer without raising and still have nothing to give
+        # (`available: False` for an empty or 0-byte feed). That is a miss, and
+        # the trace must say so — otherwise the report table claims 政治头条 正常
+        # above a body that says the feed could not be read.
+        if politics.get("available") is False:
+            record_call(method="political_headlines", category="politics", vendor="openbb",
+                        chain=["openbb"], args=(trade_date,), kwargs={}, ms=watch.ms,
+                        error=str(politics.get("reason") or "no headline returned"))
+        else:
+            record_call(method="political_headlines", category="politics", vendor="openbb",
+                        chain=["openbb"], args=(trade_date,), kwargs={}, ms=watch.ms,
+                        result=politics)
     except Exception as exc:  # noqa: BLE001 — a dead feed must not stop the run
         logger.warning("Political headlines unavailable for %s: %s", trade_date, exc)
         politics = {"error": f"{type(exc).__name__}: {exc}", "available": False,
                     "reason": "the news feed could not be read", "topics": [],
                     "window": [trade_date, trade_date], "source": "OpenBB", "scanned": 0}
+        record_call(method="political_headlines", category="politics", vendor="openbb",
+                    chain=["openbb"], args=(trade_date,), kwargs={}, ms=0,
+                    error=str(exc))
 
     try:
         odds = read_odds(trade_date)

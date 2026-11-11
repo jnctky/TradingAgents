@@ -85,8 +85,53 @@ def test_attempted_but_failed_fundamentals_is_a_gap(tmp_path):
 def test_withheld_prediction_markets_is_design_not_outage(tmp_path):
     records = [_rec("core_stock_apis"), _rec("technical_indicators"), _rec("news_data"),
                {"category": "prediction_markets", "ms": 0, "chars": 200, "ok": True,
-                "tool": "get_prediction_markets", "vendor": "polymarket", "chain": []}]
+                "tool": "get_prediction_markets", "vendor": "polymarket", "chain": [],
+                "sample": "DATA_UNAVAILABLE: prediction-market odds are withheld for "
+                          "2026-11-10 — Polymarket serves only live odds."}]
     verdict = summarize_trace(_trace(tmp_path, records))
+    # Design answer, not an outage: core completeness stands.
+    assert verdict["complete"] is True
+    assert verdict["categories"]["prediction_markets"]["status"] == "withheld"
+
+
+def test_a_refusal_sentinel_is_never_counted_as_a_success(tmp_path):
+    # The failure this pins: the vendor answered 200 with "DATA_UNAVAILABLE ...",
+    # the trace counted it ok, and the table claimed 预测市场 正常 while the
+    # analyst body said the odds were withheld. Both surfaces must agree.
+    records = [_rec("core_stock_apis"), _rec("technical_indicators"), _rec("news_data"),
+               {"category": "prediction_markets", "ms": 0, "chars": 200, "ok": True,
+                "tool": "get_prediction_markets", "vendor": "polymarket", "chain": [],
+                "sample": "DATA_UNAVAILABLE: Polymarket could not be reached."}]
+    verdict = summarize_trace(_trace(tmp_path, records))
+    bucket = verdict["categories"]["prediction_markets"]
+    assert bucket["ok"] == 0 and bucket["withheld"] == 1
+    assert bucket["status"] == "withheld"
+    assert "按设计不提供" in markdown(verdict)
+
+
+def test_the_conclusion_names_optional_gaps_instead_of_claiming_a_clean_run(tmp_path):
+    # Sentiment feeds die far more often than prices. "数据完整" next to a 失败
+    # row read as a contradiction, so the conclusion has to carry both facts.
+    records = [_rec("core_stock_apis"), _rec("technical_indicators"), _rec("news_data"),
+               _rec("sentiment_data", ok=False)]
+    verdict = summarize_trace(_trace(tmp_path, records))
+    assert verdict["complete"] is True
+    text = markdown(verdict)
+    assert "核心数据（行情、技术指标、新闻）完整" in text
+    assert "情绪（StockTwits / Reddit） 失败" in text
+
+
+def test_calendar_and_politics_are_traced_so_the_table_cannot_stay_silent(tmp_path):
+    # Both are built outside the router (date_context); before they were traced
+    # the body could say "日历不可用" while every table row read 正常.
+    records = [_rec("core_stock_apis"), _rec("technical_indicators"), _rec("news_data"),
+               _rec("events", ok=False), _rec("politics", ok=False)]
+    verdict = summarize_trace(_trace(tmp_path, records))
+    assert verdict["categories"]["events"]["status"] == "failed"
+    assert verdict["categories"]["politics"]["status"] == "failed"
+    text = markdown(verdict)
+    assert "经济日历 失败" in text and "政治头条 失败" in text
+    # Soft data never blocks a priced conclusion.
     assert verdict["complete"] is True
 
 
