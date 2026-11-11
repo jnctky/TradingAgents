@@ -53,7 +53,7 @@ def create_portfolio_manager(llm):
 **Rating Scale** (use exactly one):
 - **Buy**: Strong conviction to enter or add to position
 - **Overweight**: Favorable outlook, gradually increase exposure
-- **Hold**: Maintain current position, no action needed
+- **Hold**: Keep the current position. This is the correct answer when the case is genuinely balanced, or when the evidence is too thin to price a move — it is a conclusion, not a refusal, and it must state what would tip the call either way
 - **Underweight**: Reduce exposure, take partial profits
 - **Sell**: Exit position or avoid entry
 
@@ -66,7 +66,7 @@ def create_portfolio_manager(llm):
 
 ---
 
-Ground every conclusion in specific evidence from the analysts. The risk debate always contains conflicting stances; deciding which is stronger is the job, so conflict alone is not a reason to Hold. Commit to the stronger case, sized by how decisively it wins. Choose Hold only when the evidence is still balanced after that weighing, or too thin to support a call; do not force a direction to appear decisive. Weigh the analysts on their merits, independent of speaking order.
+Ground every conclusion in specific evidence from the analysts. The risk debate always contains conflicting stances; deciding which is stronger is the job, so conflict alone is not a reason to Hold. Commit to the stronger case, sized by how decisively it wins. Choose Hold when the evidence is still balanced after that weighing, or too thin to support a call; do not force a direction to appear decisive, and do not treat Hold as a Buy with low confidence. A sell call on a name you would not actually short is a Hold, and a whole book leaning one way is a market view rather than one view per name. Weigh the analysts on their merits, independent of speaking order.
 
 ## Output
 
@@ -74,6 +74,8 @@ Write these sections, in this order, starting with the rating on its own line:
 
 - **Rating**: exactly one of Buy / Overweight / Hold / Underweight / Sell
 - **Confidence**: how decisively the evidence supports this call, 0.0-1.0 (0.8+ = little left to argue, 0.5-0.6 = a close call)
+- **Price Target**: the level the call aims at, or "not provided" when no basis exists at all. Never a number without a basis; a Hold needs none
+- **Target Basis**: valuation / consensus / structural / none. A structural target — a measured move, a prior high or low, a gap edge, the far side of a range — is a real target: name the level it comes from
 - **Executive Summary**: the call and how to act on it
 - **Investment Thesis**: the evidence that decided it, and what would change it
 

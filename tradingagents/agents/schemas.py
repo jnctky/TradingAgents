@@ -73,6 +73,21 @@ class PortfolioRating(StrEnum):
     SELL = "Sell"
 
 
+class TargetBasis(StrEnum):
+    """Where a target price comes from — the reader's only way to weigh it.
+
+    A valuation target and a chart level are both legitimate, but they are not
+    the same claim: the first says what the business is worth, the second says
+    where price stalled last time. Unlabelled, the two get read as equally
+    strong evidence and argued about as if one number meant one thing.
+    """
+
+    VALUATION = "valuation"
+    CONSENSUS = "consensus"
+    STRUCTURAL = "structural"
+    NONE = "none"
+
+
 class TraderAction(StrEnum):
     """3-tier transaction direction used by the Trader.
 
@@ -252,7 +267,26 @@ class PortfolioDecision(BaseModel):
     )
     price_target: float | None = Field(
         default=None,
-        description="Optional target price in the instrument's quote currency.",
+        description=(
+            "The price the call aims at, in the instrument's quote currency. "
+            "Give one whenever the instrument's own record supports a level: a "
+            "multiple or a DCF (valuation), a consensus with a stated source "
+            "(consensus), or a level already visible in the price — a measured "
+            "move, a prior high or low, a gap edge, the far side of a range "
+            "(structural). A structural level is a real target, not a fallback: "
+            "name the level and how far it sits. Leave this empty only when no "
+            "basis exists at all, and then say so in one sentence. A Hold needs "
+            "no target."
+        ),
+    )
+    target_basis: TargetBasis | None = Field(
+        default=None,
+        description=(
+            "What the target price rests on: valuation, consensus, structural, "
+            "or none. Required whenever a target is given, and it must match the "
+            "basis named in the thesis. Use none only when no target is given "
+            "because no basis exists."
+        ),
     )
     confidence: float | None = Field(
         default=None,
@@ -297,6 +331,10 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
     parts.extend(["", f"**Confidence**: {confidence}"])
     target = decision.price_target if decision.price_target is not None else "not provided"
     parts.extend(["", f"**Price Target**: {target}"])
+    # The basis rides beside the number, not inside the thesis alone: a reader
+    # who sees only "725.00" cannot tell a DCF from a gap edge.
+    basis = decision.target_basis.value if decision.target_basis is not None else "not provided"
+    parts.extend(["", f"**Target Basis**: {basis}"])
     parts.extend(["", f"**Time Horizon**: {decision.time_horizon or 'not provided'}"])
     return "\n".join(parts)
 
