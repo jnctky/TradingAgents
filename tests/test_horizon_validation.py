@@ -192,6 +192,24 @@ def test_a_rating_that_crosses_hold_on_a_rerun_is_flagged():
 
 
 @pytest.mark.unit
+def test_crossing_into_hold_counts_as_a_flip_too():
+    """「减仓」缩成「维持不动」也是换了建议：读者手上按的是不同的键。"""
+    row = {**_row("Hold", None), "prior_rating": "Underweight"}
+    verdict = pf.validate_row(row, "position")
+    assert verdict["passed"] is False
+    assert _flags(verdict, "rating_flipped_on_rerun")
+
+
+@pytest.mark.unit
+def test_crossing_into_hold_counts_as_a_flip_too():
+    """「减仓」缩成「维持不动」也是换了建议：读者手上按的是不同的键。"""
+    row = {**_row("Hold", None), "prior_rating": "Underweight"}
+    verdict = pf.validate_row(row, "position")
+    assert verdict["passed"] is False
+    assert _flags(verdict, "rating_flipped_on_rerun")
+
+
+@pytest.mark.unit
 def test_a_rerun_that_stays_on_the_same_side_is_not_flagged():
     # Underweight → Sell 是同一侧、同向加一档，属于措辞收敛，不是翻向。
     row = {**_row("Sell", 90.0), "prior_rating": "Underweight"}
