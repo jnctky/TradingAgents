@@ -274,7 +274,9 @@ class PortfolioDecision(BaseModel):
             "(consensus), or a level already visible in the price — a measured "
             "move, a prior high or low, a gap edge, the far side of a range "
             "(structural). A structural level is a real target, not a fallback: "
-            "name the level and how far it sits. Leave this empty only when no "
+            "name the level and how far it sits. It must be where the move is "
+            "going, not where the call would be abandoned — a level the thesis "
+            "breaks on is a stop, never a target. Leave this empty only when no "
             "basis exists at all, and then say so in one sentence. A Hold needs "
             "no target."
         ),

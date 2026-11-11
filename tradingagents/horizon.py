@@ -62,6 +62,22 @@ class Horizon:
     forbid: tuple[str, ...]
 
 
+#: The distinction every target used to blur (2026-11-11 batch: most structural
+#: targets came back 3%-6% from spot, which on inspection were the levels that
+#: would *invalidate* the call — the 50 SMA a bull case breaks below, not the
+#: price it is heading for). A target is where the move ends; the level that
+#: breaks the call is the stop. Shared by all four horizons so the four rules
+#: cannot drift apart on the one point that decides whether a target is useful.
+TARGET_TERMINUS = (
+    "A target is where the move ends, not where the call would fail. Take the "
+    "natural terminus of the move — where a measured move lands, the far edge of "
+    "the congestion, the other side of the range — and if that sits closer than "
+    "the bottom of the band, reach for a further structural level instead of "
+    "shortening the target. The level that would invalidate the call belongs in "
+    "the stop, not here."
+)
+
+
 HORIZONS: dict[str, Horizon] = {
     "ultrashort": Horizon(
         code="ultrashort",
@@ -83,6 +99,7 @@ HORIZONS: dict[str, Horizon] = {
             "Answer for a hold of one night to five sessions. A thesis that needs a quarter to play out is not this trade.",
             "Read a 60-session window. Weight the 10 EMA, ATR, volume expansion and gap behaviour; do not let the 200 SMA decide direction.",
             "A target price must sit 2%-6% away from the reference price, in the direction of the rating: a Buy/Overweight targets 2%-6% above spot, a Sell/Underweight 2%-6% below it. A valuation or consensus target further away than that belongs to a longer horizon and must not be given here. A structural target — the prior day's high or low, a gap edge, a measured move — is legitimate at this horizon even outside the band, provided you name the level it comes from. A Hold needs no target.",
+            TARGET_TERMINUS,
             "Place the stop 1x ATR from entry on the losing side, as an absolute price. Size the position so a stop-out costs at most 0.5% of the book.",
             "Fundamentals may only disqualify a trade (fraud, going concern, imminent dilution). They are not a reason to enter one this week.",
             "Cite only events inside the next 5 trading days. Earnings three weeks out cannot be the case for a trade closed this week.",
@@ -110,6 +127,7 @@ HORIZONS: dict[str, Horizon] = {
             "Answer for a hold of two weeks to two months. Frame the call as a swing position, not an investment and not a day trade.",
             "Read a 120-session window. Weight the 20 SMA, 10 EMA, MACD, RSI, ATR and Bollinger position; use the 200 SMA only as a regime filter, never as the reason to enter.",
             "A target price from a multiple or a documented consensus must sit 3%-10% away from the reference price in the direction of the rating (above spot for a Buy/Overweight, below it for a Sell/Underweight). A structural target — a measured move, a resistance level, the far side of the range — is legitimate even outside that band: name the level and how far it sits, and give its basis as structural. A Hold needs no target.",
+            TARGET_TERMINUS,
             "Place the stop at 1.5x ATR or below the 20 SMA, whichever is closer, as an absolute price. Size so a stop-out costs at most 0.5% of the book.",
             "Fundamentals are a risk filter here: they can veto a trade, not carry one. Do not argue a two-month call from a five-year cash-flow story.",
             "Cite only events inside the next four weeks; anything later is context, not a catalyst.",
@@ -136,6 +154,7 @@ HORIZONS: dict[str, Horizon] = {
             "Answer for a hold of one to three months (one earnings cycle). This is the default horizon: act like a position trader, not a scalper.",
             "Read a 250-session window. Weight the 50 and 200 SMA, the weekly trend, relative strength against the index, and one valuation anchor; a 10 EMA crossover alone is not a thesis.",
             "A target price from a multiple or a DCF must sit 8%-25% away from the reference price in the direction of the rating (above spot for a Buy/Overweight, below it for a Sell/Underweight), and a documented consensus target should sit in the same band. A structural target — a measured move, a prior high or low, a gap edge, the top or bottom of the range — is legitimate even outside that band: name the level it comes from and how far it sits. A Hold needs no target.",
+            TARGET_TERMINUS,
             "Place the stop at 2x ATR or below the 50 SMA, whichever is closer, as an absolute price. Size so a stop-out costs at most 1% of the book.",
             "Fundamentals and the next earnings report carry real weight: say what the quarter must show for the call to hold.",
             "Cite only events inside the current or next earnings window. A catalyst beyond that is a reason to revisit, not a reason to act.",
@@ -162,6 +181,7 @@ HORIZONS: dict[str, Horizon] = {
             "Answer for a hold of six to eighteen months. Short-term price noise is not evidence for or against this call.",
             "Read a 500-session window plus the weekly trend. Weight the 200 SMA as a regime line, valuation, cash flow and returns on capital; short-window indicators may time an entry but cannot set the direction.",
             "A target price from a DCF or a normalised multiple must sit 20%-45% away from the reference price in the direction of the rating (above spot for a Buy/Overweight, below it for a Sell/Underweight). A structural target may sit outside that band only if it is a level the multi-year chart actually shows — name it and say how far it sits. A Hold needs no target.",
+            TARGET_TERMINUS,
             "Place the stop at a structural low or -20% from entry, whichever is tighter in risk terms, as an absolute price. Size so a stop-out costs at most 2% of the book.",
             "State what must be true in the business over two quarters, and what would falsify it. A single week's move changes nothing here.",
             "Cite only events inside the next two quarters. A CPI print next week may be worth a sentence, never the thesis.",
