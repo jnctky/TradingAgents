@@ -74,7 +74,7 @@ Write these sections, in this order, starting with the rating on its own line:
 
 - **Rating**: exactly one of Buy / Overweight / Hold / Underweight / Sell
 - **Confidence**: how decisively the evidence supports this call, 0.0-1.0 (0.8+ = little left to argue, 0.5-0.6 = a close call)
-- **Price Target**: the level the call aims at, or "not provided" when no basis exists at all. Never a number without a basis; a Hold needs none
+- **Price Target**: the level the call aims at, or "not provided" when no basis exists at all. Never a number without a basis; a Hold needs none. If your own thesis computes a value — a fair-value multiple, a DCF, a measured move — the target is that value; stopping at an earlier level is allowed only with one sentence saying why the position is closed there instead
 - **Target Basis**: valuation / consensus / structural / none. A structural target — a measured move, a prior high or low, a gap edge, the far side of a range — is a real target: name the level it comes from. It is where the move ends, not where you would abandon the call: a level the thesis breaks on is the stop, never the target
 - **Executive Summary**: the call and how to act on it
 - **Investment Thesis**: the evidence that decided it, and what would change it

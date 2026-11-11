@@ -276,9 +276,12 @@ class PortfolioDecision(BaseModel):
             "(structural). A structural level is a real target, not a fallback: "
             "name the level and how far it sits. It must be where the move is "
             "going, not where the call would be abandoned — a level the thesis "
-            "breaks on is a stop, never a target. Leave this empty only when no "
-            "basis exists at all, and then say so in one sentence. A Hold needs "
-            "no target."
+            "breaks on is a stop, never a target. A target must also agree with "
+            "the thesis's own arithmetic: if the thesis computes a fair value, a "
+            "DCF output or a measured move, the target is that number, and a "
+            "closer level needs a sentence explaining the difference. Leave this "
+            "empty only when no basis exists at all, and then say so in one "
+            "sentence. A Hold needs no target."
         ),
     )
     target_basis: TargetBasis | None = Field(

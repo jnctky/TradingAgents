@@ -111,6 +111,31 @@ def test_a_valuation_target_outside_the_band_is_still_a_mismatch():
     assert _flags(verdict, "target_horizon_mismatch")
 
 
+# --- layer 2b: a narrow room is information, not a failure -------------------
+
+@pytest.mark.unit
+def test_a_structural_target_narrower_than_the_band_passes_and_says_so():
+    """2026-11-11 用户拍板 B。
+
+    AAPL 325.33 是 325–355 区间的下沿，距现价 −6.7%，比中线档下沿 −8% 窄。
+    图上没有更远的结构位可指，硬凑一个更远的目标就是编数据。所以这行必须
+    passed=True（不是失败），但 validation 里要留下 space，让日报和驾驶舱
+    能把「这段空间撑不满 1-3 个月」写出来。
+    """
+    verdict = pf.validate_row(_row("Underweight", 93.3, basis="structural"), "position")
+    assert verdict["passed"] is True, verdict["flags"]
+    assert verdict["space"]["pct"] == 6.7
+    assert verdict["space"]["band_lo"] == 8.0
+    assert "6.7%" in verdict["space"]["text"]
+
+
+@pytest.mark.unit
+def test_a_structural_target_inside_the_band_carries_no_space_note():
+    verdict = pf.validate_row(_row("Underweight", 91.0, basis="structural"), "position")
+    assert verdict["passed"] is True
+    assert "space" not in verdict
+
+
 # --- Hold is an answer, not a gap -------------------------------------------
 
 @pytest.mark.unit

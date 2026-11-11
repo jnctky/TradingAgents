@@ -39,3 +39,6 @@ def test_the_prompt_actually_carries_the_rule():
     text = horizon.instruction("position")
     assert "where the move ends" in text
     assert "belongs in the stop" in text
+    # 图上没有更远的位就照实说空间不够，别为凑带编价位（2026-11-11 B）。
+    assert "the room is X%" in text
+    assert "fabrication" in text

@@ -72,9 +72,12 @@ TARGET_TERMINUS = (
     "A target is where the move ends, not where the call would fail. Take the "
     "natural terminus of the move — where a measured move lands, the far edge of "
     "the congestion, the other side of the range — and if that sits closer than "
-    "the bottom of the band, reach for a further structural level instead of "
-    "shortening the target. The level that would invalidate the call belongs in "
-    "the stop, not here."
+    "the bottom of the band, reach for a further structural level the chart "
+    "actually shows. If no such level exists, keep the nearer one and say in one "
+    "sentence that the room is X%, short of this horizon's band: a narrow room is "
+    "information about the setup, and inventing a price to fill the band is "
+    "fabrication. The level that would invalidate the call belongs in the stop, "
+    "not here."
 )
 
 
