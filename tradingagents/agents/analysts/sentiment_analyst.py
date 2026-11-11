@@ -43,7 +43,35 @@ from tradingagents.dataflows.vendors.reddit import (
     fetch_reddit_posts,
     subreddits_for,
 )
+from tradingagents.dataflows.trace import record_call, stopwatch
 from tradingagents.dataflows.vendors.stocktwits import fetch_stocktwits_messages
+
+
+def _fetch_traced(method: str, vendor: str, fn, *args, **kwargs) -> str:
+    """Call a social fetcher and record the attempt in the vendor trace.
+
+    These two feeds are read directly by the analyst, not through the router,
+    so without this the report's 「数据完整性」 table had no row for them: the
+    header said "完整" while the write-up said StockTwits and Reddit were gone.
+    The fetchers degrade to a sentinel string instead of raising, so failure is
+    read off that sentinel.
+    """
+    with stopwatch() as watch:
+        try:
+            text = fn(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - recorded, then re-raised
+            record_call(method=method, category="sentiment_data", vendor=vendor,
+                        chain=[vendor], args=args, kwargs=kwargs,
+                        ms=watch.ms, result=None, error=f"{type(exc).__name__}: {exc}")
+            raise
+    lowered = text.lower()
+    error = None
+    if "unavailable" in lowered:
+        error = text.strip().splitlines()[0][:200]
+    record_call(method=method, category="sentiment_data", vendor=vendor,
+                chain=[vendor], args=args, kwargs=kwargs,
+                ms=watch.ms, result=text, error=error)
+    return text
 
 
 def _seven_days_back(trade_date: str) -> str:
@@ -74,12 +102,14 @@ def create_sentiment_analyst(llm):
         # Pass the analysis window so a historical run trims social posts to it
         # instead of leaking today's chatter into a backtest (#1220).
         screen = jev_screen(ticker)
-        stocktwits_block = fetch_stocktwits_messages(
-            ticker, limit=30, start_date=start_date, end_date=end_date, screen=screen
+        stocktwits_block = _fetch_traced(
+            "stocktwits", "stocktwits", fetch_stocktwits_messages,
+            ticker, limit=30, start_date=start_date, end_date=end_date, screen=screen,
         )
         subreddits = subreddits_for(ticker)
-        reddit_block = fetch_reddit_posts(
-            ticker, subreddits, start_date=start_date, end_date=end_date, screen=screen
+        reddit_block = _fetch_traced(
+            "reddit", "reddit", fetch_reddit_posts,
+            ticker, subreddits, start_date=start_date, end_date=end_date, screen=screen,
         )
 
         system_message = _build_system_message(

@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from tradingagents.dataflows.date_window import is_historical
+from tradingagents.dataflows.symbols import is_crypto_symbol
 from tradingagents.dataflows.vendors.sidecar.fundamentals import get_company_profile
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,11 @@ def resolve_instrument_identity(ticker: str) -> dict:
 @functools.lru_cache(maxsize=256)
 def _identity(ticker: str) -> dict:
     """The vendor's identity fields for ``ticker``; raises if the lookup fails."""
+    if is_crypto_symbol(ticker):
+        # A coin has no issuer profile. Both profile feeds would spend their
+        # retries on a 0-byte body and log it like a vendor outage, which the
+        # integrity summary then reads as a failed fundamental fetch.
+        return {"quote_type": "CRYPTO"}
     try:
         info = get_company_profile(ticker)
     except Exception:  # noqa: BLE001 - a dead sidecar must not block the run
@@ -257,7 +263,13 @@ def get_data_integrity_instruction() -> str:
         "去给出入场价、止损价、目标价或任何具体点位。\n"
         "4. 因数据缺失无法可靠得出的结论，必须直接写「无法给出：该数据缺失」，"
         "并停止该结论；不得换一种说法变相给出。\n"
-        "5. 投资需要的是完全准确的数据：宁可缺一条结论，不可错一条数据。"
+        "5. 投资需要的是完全准确的数据：宁可缺一条结论，不可错一条数据。\n"
+        "6. **只声明你自己这一轮实际调用的数据**。你没调用的数据域（例如基本面分析师"
+        "没有行情工具、情绪分析师没有报表工具）不属于「数据缺失」，不要代述其他分析师"
+        "的取数结论，更不要写「本次分析无价格数据」「价格数据完全缺失」这类全局判断——"
+        "那会把别人拿到的数据一起否定掉。第 2 条要求列出的，是你自己**调用失败**的源。\n"
+        "7. 你的「无法给出」只限定在你负责的数据域内。行情、指标、点位这类不归你管的"
+        "结论，交给负责它的分析师，不代答、也不宣布它不存在。"
     )
 
 

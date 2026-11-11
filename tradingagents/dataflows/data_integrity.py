@@ -52,6 +52,10 @@ CATEGORY_LABELS: dict[str, str] = {
     "fundamental_data": "基本面",
     "macro_data": "宏观",
     "prediction_markets": "预测市场",
+    # Read straight by the sentiment analyst (not through the router); without
+    # these rows the header could claim "完整" while the body listed both feeds
+    # as missing.
+    "sentiment_data": "情绪（StockTwits / Reddit）",
 }
 
 STATUS_LABELS = {

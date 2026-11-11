@@ -64,7 +64,7 @@ def _pick(ticker: str) -> dict:
 
 def test_resume_without_force_skips_done(pipeline_env):
     state = pipeline_env
-    (state / "decisions-2026-11-05.json").write_text(json.dumps({
+    (state / "decisions-2026-11-05-position.json").write_text(json.dumps({
         "date": "2026-11-05",
         "results": {"NVDA": {"ticker": "NVDA", "status": "done", "rating": "buy"}},
     }, ensure_ascii=False), encoding="utf-8")
@@ -76,7 +76,7 @@ def test_resume_without_force_skips_done(pipeline_env):
 
 def test_force_reruns_done_and_preserves_others(pipeline_env):
     state = pipeline_env
-    decisions = state / "decisions-2026-11-05.json"
+    decisions = state / "decisions-2026-11-05-position.json"
     decisions.write_text(json.dumps({
         "date": "2026-11-05",
         "results": {
@@ -99,7 +99,7 @@ def test_force_reruns_done_and_preserves_others(pipeline_env):
 
 def test_force_refreshes_snapshot(pipeline_env):
     state = pipeline_env
-    decisions = state / "decisions-2026-11-05.json"
+    decisions = state / "decisions-2026-11-05-position.json"
     decisions.write_text(json.dumps({
         "date": "2026-11-05",
         "results": {

@@ -12,6 +12,7 @@ import logging
 from datetime import datetime
 
 from tradingagents.dataflows.errors import NoMarketDataError
+from tradingagents.dataflows.symbols import is_crypto_symbol
 
 from .client import PROVIDER, assert_rows, get_json
 
@@ -47,6 +48,15 @@ def build_quote_crosscheck(symbol: str, as_of_date: str, row_close: float | None
     The date guard runs *before* the request: a live quote is worthless (and
     misleading) for a historical run, so those runs never touch the network.
     """
+    if is_crypto_symbol(symbol):
+        # A coin has no equity live quote. Asking the equity route spent six
+        # retries on a 0-byte body and logged a vendor outage for what is
+        # simply "this instrument does not have that field".
+        return (
+            "### Quote cross-check\n\nSkipped: crypto assets have no equity live "
+            "quote; the Binance close above is the reference price.\n"
+        )
+
     try:
         requested = datetime.strptime(as_of_date, "%Y-%m-%d").date()
     except ValueError:
