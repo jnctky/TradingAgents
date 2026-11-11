@@ -1,7 +1,10 @@
 """The memory log: an append-only markdown record of each decision and, once settled, its outcome."""
 
 import contextlib
+import os
 import re
+import time
+import uuid
 from pathlib import Path
 
 from tradingagents.agents.rating import parse_rating
@@ -195,9 +198,7 @@ class TradingMemoryLog:
 
             new_blocks = self._apply_rotation(new_blocks)
             new_text = self._SEPARATOR.join(new_blocks)
-            tmp_path = self._log_path.with_suffix(".tmp")
-            tmp_path.write_text(new_text, encoding="utf-8")
-            tmp_path.replace(self._log_path)
+            self._atomic_write(new_text)
             return True
 
     def batch_update_with_outcomes(self, updates: list[dict]) -> None:
@@ -249,11 +250,40 @@ class TradingMemoryLog:
 
             new_blocks = self._apply_rotation(new_blocks)
             new_text = self._SEPARATOR.join(new_blocks)
-            tmp_path = self._log_path.with_suffix(".tmp")
-            tmp_path.write_text(new_text, encoding="utf-8")
-            tmp_path.replace(self._log_path)
+            self._atomic_write(new_text)
 
     # --- Helpers ---
+
+    def _atomic_write(self, text: str) -> None:
+        """Put ``text`` in place through a private temp file, retrying the move.
+
+        Two reasons this is not a bare ``with_suffix('.tmp')`` write:
+
+        * A fixed temp name is shared by every writer, so two runs settling at
+          the same moment could write into each other's file.
+        * On Windows ``os.replace`` fails with PermissionError while a reader
+          (another analysis loading the log) holds the target open. It is a
+          transient condition, not a reason to lose the decision, so the move
+          is retried briefly before the error is surfaced.
+        """
+        tmp_path = self._log_path.with_name(f"{self._log_path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            tmp_path.write_text(text, encoding="utf-8")
+            # A stale temp from an older build (fixed `.tmp` suffix) is dead
+            # weight beside the log; clearing it keeps the directory honest.
+            legacy = self._log_path.with_suffix(".tmp")
+            if legacy != tmp_path:
+                legacy.unlink(missing_ok=True)
+            for attempt in range(6):
+                try:
+                    os.replace(tmp_path, self._log_path)
+                    return
+                except PermissionError:
+                    if attempt == 5:
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     @staticmethod
     def _resolved_tag(

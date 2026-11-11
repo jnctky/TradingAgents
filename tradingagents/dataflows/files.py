@@ -3,6 +3,7 @@
 import errno
 import logging
 import os
+import time
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -43,10 +44,28 @@ def locked(path, wait: bool = True) -> Iterator[bool]:
     held: with ``wait=False`` a lock someone else holds is not waited for, and
     the block runs holding nothing.
     """
-    with open(f"{path}.lock", "a+b") as handle:
+    with _open_lock(path) as handle:
         hold = _hold_windows if os.name == "nt" else _hold_posix
         with hold(handle, wait) as acquired:
             yield acquired
+
+
+def _open_lock(path, tries: int = 40, pause: float = 0.05):
+    """Open the lock file, waiting out a transient sharing violation.
+
+    On Windows another process can hold the lock file open for a few
+    milliseconds — an antivirus scan, an indexer, a second analysis opening the
+    same log — and ``open(..., "a+b")`` then fails with PermissionError even
+    though a retry succeeds. Losing a whole settlement pass to that race is not
+    acceptable, so it is waited out; a permanent refusal still raises.
+    """
+    for attempt in range(tries):
+        try:
+            return open(f"{path}.lock", "a+b")
+        except PermissionError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(pause)
 
 
 @contextmanager
