@@ -8,8 +8,11 @@ needs — Fed policy, index moves, oil and rates — without depending on a
 rate-limited third party.
 """
 
+import json
 import logging
+import os
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Annotated
 
 from tradingagents.dataflows.config import get_config
@@ -17,6 +20,9 @@ from tradingagents.dataflows.config import get_config
 from .client import PROVIDER, get_json
 
 logger = logging.getLogger(__name__)
+
+#: Bump when the shape of the cached payload changes.
+CACHE_VERSION = 1
 
 # Fallback basket if the config does not provide one. Broad market first, then
 # the cross-asset lenses a macro read needs.
@@ -29,6 +35,58 @@ PROXY_LABELS = {
     "TLT": "US Treasuries", "GLD": "Gold", "USO": "Crude oil", "UUP": "US dollar",
     "^GSPC": "S&P 500 index", "^IXIC": "Nasdaq Composite",
 }
+
+
+def _cache_dir() -> Path:
+    cache = get_config().get("data_cache_dir") or os.path.join(
+        os.path.expanduser("~"), ".tradingagents", "cache")
+    return Path(cache) / "global_news"
+
+
+def _cache_path(as_of_date: str, look_back_days: int, limit: int) -> Path:
+    return _cache_dir() / f"{as_of_date}_{look_back_days}_{limit}.json"
+
+
+def _load_cached(as_of_date: str, look_back_days: int, limit: int) -> str | None:
+    """The same macro feed this date already produced, if it was fetched before.
+
+    Global news does not depend on the ticker, so a 22-name batch was asking
+    the provider for the identical basket 22 times. The nasdaq route starts
+    answering 0-byte bodies well before that many calls, which turned a
+    genuinely fine feed into 「新闻部分可用」 on 19 of 21 rows.
+    """
+    path = _cache_path(as_of_date, look_back_days, limit)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if payload.get("version") != CACHE_VERSION:
+        return None
+    text = payload.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return None
+    logger.info("Global news for %s reused from %s", as_of_date, path.name)
+    return text
+
+
+def _save_cached(as_of_date: str, look_back_days: int, limit: int, text: str) -> None:
+    if not text.strip() or text.startswith("No global news found"):
+        return                     # an empty answer is not worth pinning to the date
+    path = _cache_path(as_of_date, look_back_days, limit)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({
+            "version": CACHE_VERSION,
+            "trade_date": as_of_date,
+            "look_back_days": look_back_days,
+            "limit": limit,
+            "fetched_at": datetime.now().isoformat(timespec="seconds"),
+            "text": text,
+        }, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+    except OSError as exc:
+        logger.warning("Could not cache global news for %s: %s", as_of_date, exc)
 
 
 def _pub_dt(row: dict) -> datetime | None:
@@ -108,6 +166,10 @@ def get_global_news_openbb(
         limit = config.get("global_news_article_limit", 10)
     proxies = list(config.get("global_news_proxy_symbols") or DEFAULT_PROXY_SYMBOLS)
 
+    cached = _load_cached(as_of_date, int(look_back_days), int(limit))
+    if cached:
+        return cached
+
     as_of_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
     start_dt = as_of_dt - timedelta(days=int(look_back_days))
     end_dt = as_of_dt.replace(hour=23, minute=59)
@@ -156,5 +218,7 @@ def get_global_news_openbb(
         "",
     ]
     lines += [_format_entry(row) for row in selected]
-    return "\n".join(lines) + "\n"
+    text = "\n".join(lines) + "\n"
+    _save_cached(as_of_date, int(look_back_days), int(limit), text)
+    return text
 
