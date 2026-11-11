@@ -6,6 +6,7 @@ check of the sign-in (signature, issuer, audience, nonce, plan scope) runs for r
 
 import base64
 import json
+import os
 import socket
 import stat
 import threading
@@ -156,6 +157,19 @@ def test_a_fresh_token_is_used_without_asking_openai(home, openai):
     assert openai.posts == []
 
 
+def _assert_private_mode(path):
+    """The sign-in file is readable by its owner only.
+
+    Windows has no POSIX permission bits — ``chmod`` is a no-op there and
+    ``S_IMODE`` reports 0o666 for every writable file — so the mode claim can
+    only be checked on POSIX. The sign-in itself is still asserted either way.
+    """
+    if os.name == "nt":
+        assert path.exists()
+    else:
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
 @pytest.mark.unit
 def test_a_token_near_expiry_is_renewed_with_the_stored_refresh_token(home, openai):
     _signed_in(expires_at=time.time() + 60)
@@ -165,7 +179,7 @@ def test_a_token_near_expiry_is_renewed_with_the_stored_refresh_token(home, open
     assert url == auth.TOKEN_URL and sent["refresh_token"] == "r1" and sent["client_id"] == CLIENT
     stored = json.loads(auth.AUTH_FILE.read_text())
     assert stored["tokens"]["refresh_token"] == "r2" and stored["account"]["subject"] == SUBJECT
-    assert stat.S_IMODE(auth.AUTH_FILE.stat().st_mode) == 0o600
+    _assert_private_mode(auth.AUTH_FILE)
 
 
 @pytest.mark.unit
@@ -245,7 +259,7 @@ def test_signing_in_by_pasting_the_redirect_saves_a_private_sign_in(home, openai
     stored = json.loads(auth.AUTH_FILE.read_text())
     assert stored["account"] == {"client_id": CLIENT, "email": "a@example.com", "subject": SUBJECT}
     assert stored["host_id"].startswith("urn:uuid:")
-    assert stat.S_IMODE(auth.AUTH_FILE.stat().st_mode) == 0o600
+    _assert_private_mode(auth.AUTH_FILE)
     asked = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(printed[1]).query))
     assert asked["client_id"] == auth.DYNAMIC_CLIENT_ID and asked["agent_name_hint"] == "TradingAgents"
     assert asked["code_challenge_method"] == "S256" and asked["redirect_uri"].startswith("http://127.0.0.1:")

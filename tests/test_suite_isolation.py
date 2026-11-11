@@ -35,11 +35,20 @@ def test_a_test_saves_cli_selections_to_its_own_directory(tmp_path):
 @pytest.mark.unit
 def test_yfinance_keeps_its_cache_out_of_the_users_home():
     """yfinance caches each symbol's time zone on disk, in the home directory by default."""
+    import os
+    import tempfile
     from pathlib import Path
 
     from yfinance.cache import _TzDBManager
 
-    assert not Path(_TzDBManager.get_location()).is_relative_to(Path.home())
+    location = Path(_TzDBManager.get_location())
+    if os.name == "nt":
+        # %TEMP% sits inside the user profile on Windows, so "not under home"
+        # cannot hold there. What the suite actually controls is the redirect
+        # into its own temp root, which is the thing worth asserting.
+        assert location.is_relative_to(Path(tempfile.gettempdir()))
+    else:
+        assert not location.is_relative_to(Path.home())
 
 
 @pytest.mark.unit
