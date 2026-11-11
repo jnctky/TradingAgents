@@ -41,8 +41,42 @@ _FOREX_CURRENCIES = frozenset(
 
 # Crypto bases that brokers quote against USD without a separator.
 _CRYPTO_BASES = frozenset(
-    {"BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "LTC", "BCH", "DOT", "AVAX", "LINK"}
+    {"BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "LTC", "BCH", "DOT", "AVAX", "LINK"}
 )
+
+
+def is_crypto_symbol(raw: str) -> bool:
+    """True when ``raw`` names a coin rather than a listed security.
+
+    This is what sends a symbol down the crypto vendor chain (Binance, then the
+    sidecar) instead of the equity one — an equity vendor answers a coin with a
+    rejection, which the router would otherwise read as "no data for the
+    instrument" rather than "wrong market".
+
+    Parameters
+    ----------
+    raw : str
+        Any symbol shape the user or the watchlist may hold: ``BTC``,
+        ``BTC-USD``, ``BTCUSDT``, ``bnb``.
+
+    Returns
+    -------
+    bool
+        True for a known crypto base, whatever quote currency or separator the
+        caller used.
+    """
+    if not isinstance(raw, str):
+        return False
+
+    compact = raw.strip().upper().replace("-", "").replace("/", "").replace("_", "").replace(" ", "")
+
+    # Strip the quote currency so a pair and its base answer the same way.
+    for quote in ("USDT", "USDC", "USD"):
+        if compact.endswith(quote) and len(compact) > len(quote):
+            compact = compact[: -len(quote)]
+            break
+
+    return compact in _CRYPTO_BASES
 
 # Explicit aliases for instruments whose broker symbol does not map to a
 # Yahoo symbol by rule. Metals/energy resolve to their front-month future;

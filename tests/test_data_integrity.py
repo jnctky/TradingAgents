@@ -93,3 +93,20 @@ def test_withheld_prediction_markets_is_design_not_outage(tmp_path):
 def test_missing_trace_file_returns_none(tmp_path):
     assert summarize_trace(tmp_path / "nope.jsonl") is None
     assert summarize_trace(None) is None
+
+
+def test_crypto_fundamentals_answered_not_applicable_is_not_a_failure(tmp_path):
+    # The router answers crypto fundamentals with a "this does not apply"
+    # sentinel instead of calling an equity vendor. That must read as 不适用,
+    # not as a fetch failure — otherwise every coin report carries a phantom
+    # "数据不完整".
+    records = [_rec("core_stock_apis"), _rec("technical_indicators"), _rec("news_data"),
+               {"category": "fundamental_data", "ms": 0, "chars": 260, "ok": True,
+                "tool": "get_fundamentals", "vendor": "not_applicable",
+                "chain": ["not_applicable"]}]
+    verdict = summarize_trace(_trace(tmp_path, records))
+
+    assert verdict["complete"] is True
+    assert verdict["categories"]["fundamental_data"]["status"] == "na"
+    assert "fundamental_data" not in verdict["missing"]
+    assert "不适用" in markdown(verdict)

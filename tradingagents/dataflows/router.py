@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import Any
 
 from tradingagents.dataflows.config import get_config
 from tradingagents.dataflows.errors import (
@@ -7,6 +10,7 @@ from tradingagents.dataflows.errors import (
     VendorUnavailableError,
 )
 from tradingagents.dataflows.trace import record_call, stopwatch
+from tradingagents.dataflows.symbols import is_crypto_symbol
 from tradingagents.dataflows.vendors.alpha_vantage import (
     get_balance_sheet as get_alpha_vantage_balance_sheet,
     get_cashflow as get_alpha_vantage_cashflow,
@@ -17,6 +21,12 @@ from tradingagents.dataflows.vendors.alpha_vantage import (
     get_insider_transactions as get_alpha_vantage_insider_transactions,
     get_news as get_alpha_vantage_news,
     get_stock as get_alpha_vantage_stock,
+)
+from tradingagents.dataflows.vendors.crypto_binance import (
+    get_stock_data as get_binance_stock,
+)
+from tradingagents.dataflows.vendors.crypto_binance import (
+    get_stock_stats_indicators_window as get_binance_indicator,
 )
 from tradingagents.dataflows.vendors.fred import get_macro_data as get_fred_macro_data
 from tradingagents.dataflows.vendors.openbb import (
@@ -103,16 +113,45 @@ TOOLS_CATEGORIES = {
 # categories (prices, fundamentals, news) still raise so a broken primary is loud.
 OPTIONAL_CATEGORIES = {"macro_data", "prediction_markets"}
 
+#: Methods whose answer is a price series. These are the only calls where the
+#: right vendor depends on which market the instrument trades in: an equity
+#: vendor answers a coin with a rejection (sidecar 400, OpenBB 204), which the
+#: router would otherwise record as "no data for the instrument".
+PRICE_METHODS = frozenset({"get_stock_data", "get_indicators"})
+
+#: Vendor chain for crypto price series (user decision, 2026-11-11): Binance
+#: spot first, the akshare sidecar as fallback for the coins it can still reach
+#: (BTC via CME futures). Equity vendors are dropped rather than tried-and-
+#: failed — they can never serve a coin, and a doomed hop only adds latency and
+#: a misleading "vendor failed" line to the trace.
+CRYPTO_VENDOR_CHAIN = ("binance", "sidecar")
+
+#: Fundamental statements exist for issuers, not for coins. Answering with a
+#: sentinel keeps "crypto has no fundamentals" from being reported as a fetch
+#: failure — the integrity summary labels it 不适用 instead of 失败.
+CRYPTO_FUNDAMENTAL_METHODS = frozenset({
+    "get_fundamentals", "get_balance_sheet", "get_cashflow", "get_income_statement",
+})
+
+CRYPTO_FUNDAMENTAL_SENTINEL = (
+    "NOT_APPLICABLE: {method} for '{symbol}' — crypto assets have no financial"
+    " statements. This is not a data outage; do not substitute on-chain or"
+    " exchange metrics for issuer fundamentals, and do not treat the absence as"
+    " a data-quality problem."
+)
+
 # Mapping of methods to their vendor-specific implementations
 VENDOR_METHODS = {
     # core_stock_apis
     "get_stock_data": {
+        "binance": get_binance_stock,
         "sidecar": get_sidecar_stock,
         "openbb": get_openbb_stock,
         "alpha_vantage": get_alpha_vantage_stock,
     },
     # technical_indicators
     "get_indicators": {
+        "binance": get_binance_indicator,
         "sidecar": get_sidecar_indicator,
         "openbb": get_openbb_indicator,
         "alpha_vantage": get_alpha_vantage_indicator,
@@ -215,6 +254,14 @@ def no_data_available(error: NoMarketDataError) -> str:
     )
 
 
+def _symbol_argument(args: tuple[Any, ...], kwargs: dict[str, Any]) -> str | None:
+    """The ticker a call is about — first positional string, else ``symbol=``."""
+    if args and isinstance(args[0], str):
+        return args[0]
+    symbol = kwargs.get("symbol")
+    return symbol if isinstance(symbol, str) else None
+
+
 def route_to_vendor(method: str, *args, **kwargs):
     """Route method calls to appropriate vendor implementation with fallback support."""
     category = get_category_for_method(method)
@@ -225,6 +272,21 @@ def route_to_vendor(method: str, *args, **kwargs):
         raise ValueError(f"Method '{method}' not supported")
 
     all_available_vendors = list(VENDOR_METHODS[method].keys())
+
+    # Crypto splits off before the equity chain is considered: a coin has no
+    # issuer statements and no equity bars, so the equity vendors can only
+    # answer with a rejection that reads downstream as "no data for this
+    # symbol". Sending the call to the crypto chain is what keeps that
+    # ambiguity out of the report.
+    symbol = _symbol_argument(args, kwargs)
+    is_crypto = symbol is not None and is_crypto_symbol(symbol)
+
+    if is_crypto and method in CRYPTO_FUNDAMENTAL_METHODS:
+        sentinel = CRYPTO_FUNDAMENTAL_SENTINEL.format(method=method, symbol=symbol)
+        record_call(method=method, category=category, vendor="not_applicable",
+                    chain=["not_applicable"], args=args, kwargs=kwargs, ms=0,
+                    result=sentinel)
+        return sentinel
 
     # The configured vendor list IS the chain: we do NOT silently fall back to
     # vendors the user did not choose (#988/#289) — that returned data from an
@@ -241,6 +303,13 @@ def route_to_vendor(method: str, *args, **kwargs):
             )
     else:
         vendor_chain = all_available_vendors
+
+    # Crypto price series: the equity chain cannot serve a coin, so it is
+    # replaced rather than tried. An explicit `binance` in the user's config
+    # (tool-level or category-level) still wins — the user's chain is the
+    # contract; this only fills in the case they never mentioned crypto.
+    if is_crypto and method in PRICE_METHODS and "binance" not in primary_vendors:
+        vendor_chain = [v for v in CRYPTO_VENDOR_CHAIN if v in VENDOR_METHODS[method]]
 
     last_no_data: NoMarketDataError | None = None
     last_unavailable: VendorUnavailableError | None = None

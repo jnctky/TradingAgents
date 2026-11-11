@@ -20,7 +20,14 @@ import logging
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timezone
+from typing import Annotated
 
+import pandas as pd
+from dateutil.relativedelta import relativedelta
+
+from tradingagents.dataflows.errors import NoMarketDataError, VendorUnavailableError
+
+from ._indicator_window import assert_supported, indicator_values, render_window
 from ._net import opener
 
 logger = logging.getLogger(__name__)
@@ -106,3 +113,111 @@ def _ms(day: str) -> int:
     """Midnight UTC of ``day`` in epoch milliseconds."""
     parsed = date.fromisoformat(day[:10])
     return int(datetime(parsed.year, parsed.month, parsed.day, tzinfo=timezone.utc).timestamp() * 1000)
+
+
+#: How the window text and the OHLCV header name this vendor.
+SOURCE_NOTE = "Binance spot klines (USDT pair)."
+
+
+def daily_bars(symbol: str, start: str, end: str) -> pd.DataFrame:
+    """OHLCV frame in the shape every price vendor produces.
+
+    Indexed by ``Date`` with lower-case ``open/high/low/close/volume`` columns,
+    which is what the shared indicator module and the yahoo-shaped loaders
+    expect.
+
+    Raises
+    ------
+    VendorUnavailableError
+        The proxy is down or Binance refused the request.
+    NoMarketDataError
+        Binance answered but the symbol was never mapped to a pair, or the
+        window is empty.
+    """
+    base = base_symbol(symbol)
+    pair = QUOTE_SYMBOL.get(base or "")
+
+    if not pair:
+        raise NoMarketDataError(
+            symbol, symbol,
+            f"no Binance USDT pair is mapped for '{base or symbol}' — add it to "
+            f"QUOTE_SYMBOL rather than guessing one")
+
+    query = urllib.parse.urlencode({
+        "symbol": pair,
+        "interval": "1d",
+        "startTime": _ms(start),
+        "endTime": _ms(end) + 86_400_000 - 1,
+        "limit": 1000,
+    })
+    request = urllib.request.Request(
+        f"{BINANCE_BASE}?{query}",
+        headers={"User-Agent": "TradingAgents/1.0", "Accept": "application/json"},
+    )
+
+    try:
+        with opener().open(request, timeout=REQUEST_TIMEOUT) as response:
+            rows = json.loads(response.read().decode("utf-8", "replace"))
+    except Exception as exc:  # noqa: BLE001 — the caller decides how to degrade
+        raise VendorUnavailableError(f"Binance klines unreachable for {pair}: {exc}") from exc
+
+    bars: list[dict] = []
+    for row in rows if isinstance(rows, list) else []:
+        try:
+            # [openTime, open, high, low, close, volume, closeTime, ...]
+            day = datetime.fromtimestamp(int(row[0]) / 1000, tz=timezone.utc).date()
+            bars.append({
+                "Date": pd.Timestamp(day),
+                "open": float(row[1]),
+                "high": float(row[2]),
+                "low": float(row[3]),
+                "close": float(row[4]),
+                "volume": float(row[5]),
+            })
+        except (IndexError, TypeError, ValueError):
+            continue
+
+    if not bars:
+        raise NoMarketDataError(symbol, symbol, pair,
+                                f"Binance returned no daily bars between {start} and {end}")
+
+    frame = pd.DataFrame(bars).set_index("Date").sort_index()
+    # USDT is a 24/7 market, so a weekend row is real data — never drop it.
+    return frame[~frame.index.duplicated(keep="last")]
+
+
+def get_stock_data(
+    symbol: Annotated[str, "ticker symbol of the coin"],
+    start_date: Annotated[str, "Start date in yyyy-mm-dd format"],
+    end_date: Annotated[str, "End date in yyyy-mm-dd format"],
+) -> str:
+    """Daily OHLCV history from Binance spot, shaped like the equity vendors."""
+    datetime.strptime(start_date, "%Y-%m-%d")
+    datetime.strptime(end_date, "%Y-%m-%d")
+
+    data = daily_bars(symbol, start_date, end_date)
+    out = data.rename(columns={"open": "Open", "high": "High", "low": "Low",
+                               "close": "Close", "volume": "Volume"})
+
+    header = f"# Crypto data for {symbol.upper()} from {start_date} to {end_date}\n"
+    header += f"# Source: Binance spot {QUOTE_SYMBOL.get(base_symbol(symbol) or '', 'USDT')} daily klines (UTC days, 24/7 market)\n"
+    header += f"# Total records: {len(out)}\n\n"
+    return header + out.to_csv(index_label="Date")
+
+
+def get_stock_stats_indicators_window(
+    symbol: Annotated[str, "ticker symbol of the coin"],
+    indicator: Annotated[str, "technical indicator to get the analysis and report of"],
+    as_of_date: Annotated[str, "The current trading date you are trading on, YYYY-mm-dd"],
+    look_back_days: Annotated[int, "how many days to look back"],
+) -> str:
+    """Technical indicator history computed locally from Binance bars."""
+    assert_supported(indicator)
+
+    as_of_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
+    # 400 extra days so a 200-day average is populated from the first reported day.
+    fetch_start = (as_of_dt - relativedelta(days=400)).strftime("%Y-%m-%d")
+
+    values = indicator_values(daily_bars(symbol, fetch_start, as_of_date), indicator)
+
+    return render_window(values, indicator, as_of_date, look_back_days, SOURCE_NOTE)

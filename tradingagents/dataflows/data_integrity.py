@@ -20,6 +20,7 @@ Status per category:
   partial    some calls succeeded, some failed or came back empty
   failed     no call produced usable data
   withheld   the vendor deliberately serves nothing (e.g. Polymarket live-only)
+  na         the question does not apply (crypto has no issuer statements)
 
 ``complete`` is True only when every *required* category is ``ok``. Prices
 (``core_stock_apis`` + ``technical_indicators``) and news are required:
@@ -58,7 +59,13 @@ STATUS_LABELS = {
     "partial": "部分可用",
     "failed": "失败",
     "withheld": "按设计不提供",
+    "na": "不适用",
 }
+
+#: Vendor name the router records when it answers a question that cannot exist
+#: for the instrument (crypto fundamentals). Distinct from a failure: nothing
+#: was unreachable, there is simply no such statement to fetch.
+NOT_APPLICABLE_VENDOR = "not_applicable"
 
 
 def summarize_trace(trace_path: str | Path | None) -> dict[str, Any] | None:
@@ -87,9 +94,11 @@ def summarize_trace(trace_path: str | Path | None) -> dict[str, Any] | None:
         category = str(record.get("category") or "")
         if not category:
             continue
-        bucket = per.setdefault(category, {"ok": 0, "fail": 0, "zero_bytes": 0, "ms": 0})
+        bucket = per.setdefault(category, {"ok": 0, "fail": 0, "zero_bytes": 0, "na": 0, "ms": 0})
         bucket["ms"] += int(record.get("ms") or 0)
-        if record.get("ok"):
+        if record.get("vendor") == NOT_APPLICABLE_VENDOR:
+            bucket["na"] += 1
+        elif record.get("ok"):
             if (record.get("chars") or 0) == 0:
                 bucket["zero_bytes"] += 1
             else:
@@ -104,6 +113,11 @@ def summarize_trace(trace_path: str | Path | None) -> dict[str, Any] | None:
             status = "ok"
         elif bucket["ok"]:
             status = "partial"
+        elif attempted == 0 and bucket["na"]:
+            # Every call was answered with "this does not apply" — a coin has no
+            # issuer statements. Reporting that as a fetch failure would put a
+            # phantom "数据不完整" on every crypto report.
+            status = "na"
         elif category == "prediction_markets" and attempted == bucket["fail"]:
             # The live-odds vendor deliberately withholds historical vintages;
             # its sentinel text is a design answer, not an outage.
@@ -119,7 +133,7 @@ def summarize_trace(trace_path: str | Path | None) -> dict[str, Any] | None:
     # equity run whose fundamentals feed died has a real gap.
     attempted = set(categories)
     required = [c for c in REQUIRED_CATEGORIES]
-    if "fundamental_data" in attempted:
+    if categories.get("fundamental_data", {}).get("status") not in (None, "na"):
         required.append("fundamental_data")
     complete = all(categories.get(c, {}).get("status") == "ok" for c in required)
 

@@ -225,10 +225,12 @@ def test_a_streamed_run_reads_its_own_graph_config(tmp_path, monkeypatch, offlin
     graph = _graph(tmp_path, monkeypatch, ScriptedModel(), output_language="French")
     set_config({"output_language": "German"})
     seen = []
-    # Stub whichever vendor leads the chain rather than a named one: the order
-    # is a config decision (sidecar now sits first), and the point of this test
-    # is the config the tool body sees, not which vendor answers.
-    lead = next(iter(router.VENDOR_METHODS["get_stock_data"]))
+    # Stub whichever vendor leads the *configured* chain rather than a named
+    # one: the order is a config decision, and the registration order now also
+    # carries crypto-only vendors (binance) that never answer an equity. The
+    # point of this test is the config the tool body sees, not which vendor
+    # answers.
+    lead = router.get_vendor("core_stock_apis").split(",")[0].strip()
     monkeypatch.setitem(router.VENDOR_METHODS["get_stock_data"], lead,
                         lambda *a, **k: seen.append(get_config()["output_language"]) or "prices")
 

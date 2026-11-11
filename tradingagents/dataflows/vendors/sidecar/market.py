@@ -17,11 +17,15 @@ from typing import Annotated
 
 import pandas as pd
 from dateutil.relativedelta import relativedelta
-from stockstats import wrap
 
 from tradingagents.dataflows.errors import NoMarketDataError, VendorError
 
+from .._indicator_window import assert_supported, indicator_values, render_window
 from .client import get_rows
+
+#: How the window text names this vendor. Crypto reports fall back here, so the
+#: source line has to say which vendor actually answered.
+SOURCE_NOTE = "akshare sidecar (Tencent qfq)."
 
 logger = logging.getLogger(__name__)
 
@@ -137,34 +141,6 @@ def get_stock_data(
     return header + csv_string
 
 
-_INDICATOR_DESCRIPTIONS = {
-    "close_50_sma": "50 SMA: medium-term trend direction and dynamic support/resistance.",
-    "close_200_sma": "200 SMA: long-term trend benchmark; golden/death cross confirmation.",
-    "close_10_ema": "10 EMA: responsive short-term average for momentum shifts.",
-    "macd": "MACD: momentum via EMA differences; crossovers and divergence.",
-    "macds": "MACD Signal: EMA smoothing of MACD; crossover trigger.",
-    "macdh": "MACD Histogram: gap between MACD and signal; momentum strength.",
-    "rsi": "RSI: overbought/oversold momentum gauge (70/30 thresholds).",
-    "boll": "Bollinger Middle: 20 SMA basis for the bands.",
-    "boll_ub": "Bollinger Upper Band: 2 sigma above the middle.",
-    "boll_lb": "Bollinger Lower Band: 2 sigma below the middle.",
-    "atr": "ATR: average true range, for stop placement and position sizing.",
-    "vwma": "VWMA: volume-weighted moving average, confirms price with volume.",
-    "mfi": "MFI: money flow index using price and volume (80/20 thresholds).",
-}
-
-
-def _indicator_series(symbol: str, indicator: str, as_of_date: str) -> pd.DataFrame:
-    as_of_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
-    # 400 extra days so a 200-day average is populated from the first reported day.
-    fetch_start = (as_of_dt - relativedelta(days=400)).strftime("%Y-%m-%d")
-    data = _fetch_ohlcv(symbol, fetch_start, as_of_date)
-    frame = wrap(data.reset_index())
-    frame["Date"] = pd.to_datetime(frame["Date"]).dt.strftime("%Y-%m-%d")
-    frame[indicator]  # trigger stockstats calculation
-    return frame
-
-
 def get_stock_stats_indicators_window(
     symbol: Annotated[str, "ticker symbol of the company"],
     indicator: Annotated[str, "technical indicator to get the analysis and report of"],
@@ -172,40 +148,18 @@ def get_stock_stats_indicators_window(
     look_back_days: Annotated[int, "how many days to look back"],
 ) -> str:
     """Technical indicator history computed locally from sidecar prices."""
-    if indicator not in _INDICATOR_DESCRIPTIONS:
-        raise ValueError(
-            f"Indicator {indicator} is not supported. "
-            f"Please choose from: {list(_INDICATOR_DESCRIPTIONS)}")
+    assert_supported(indicator)
 
     as_of_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
-    before_dt = as_of_dt - relativedelta(days=look_back_days)
+    # 400 extra days so a 200-day average is populated from the first reported day.
+    fetch_start = (as_of_dt - relativedelta(days=400)).strftime("%Y-%m-%d")
 
     try:
-        frame = _indicator_series(symbol, indicator, as_of_date)
+        values = indicator_values(_fetch_ohlcv(symbol, fetch_start, as_of_date), indicator)
     except VendorError:
         raise
     except Exception as exc:  # noqa: BLE001 - surface as a vendor error
         raise NoMarketDataError(symbol, symbol,
                                f"{indicator} could not be computed: {exc}") from exc
 
-    # Both series come from the same frame, so a length mismatch is a bug worth
-    # raising rather than silently truncating the indicator series.
-    values = dict(zip(frame["Date"], frame[indicator], strict=True))
-
-    lines = []
-    cursor = as_of_dt
-    while cursor >= before_dt:
-        day = cursor.strftime("%Y-%m-%d")
-        if day in values:
-            value = values[day]
-            lines.append(f"{day}: {value if not pd.isna(value) else 'N/A'}")
-        else:
-            lines.append(f"{day}: N/A: Not a trading day (weekend or holiday)")
-        cursor = cursor - relativedelta(days=1)
-
-    return (
-        f"## {indicator} values from {before_dt.strftime('%Y-%m-%d')} to {as_of_date}:\n\n"
-        + "\n".join(lines)
-        + "\n\n"
-        + f"Source: akshare sidecar (Tencent qfq). {_INDICATOR_DESCRIPTIONS[indicator]}"
-    )
+    return render_window(values, indicator, as_of_date, look_back_days, SOURCE_NOTE)
