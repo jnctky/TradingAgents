@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from tradingagents import horizon as horizon_mod
 from tradingagents.agents.context import (
+    get_data_integrity_instruction,
     get_horizon_instruction_from_state,
     get_instrument_context_from_state,
     get_language_instruction,
@@ -46,7 +47,7 @@ def create_portfolio_manager(llm):
 {instrument_context}
 
 {portfolio_context}
-{get_horizon_instruction_from_state(state)}
+{get_horizon_instruction_from_state(state)}{get_data_integrity_instruction()}
 ---
 
 **Rating Scale** (use exactly one):

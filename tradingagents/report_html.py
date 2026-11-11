@@ -282,6 +282,16 @@ def render_report(ticker: str, final_state: dict, settings: dict | None, parts,
 
         evidence_html = render_evidence(evidence)
 
+    # 数据完整性条目（用户核心原则 2026-11-11）：与 complete_report.md 一样排在
+    # 一切正文之前，由取数轨迹汇总，非模型自述。
+    integrity_html = ""
+    if evidence and evidence.get("data_integrity"):
+        from tradingagents.dataflows.data_integrity import markdown as integrity_markdown
+
+        integrity_text = integrity_markdown(evidence["data_integrity"]).strip()
+        if integrity_text:
+            integrity_html = md.render(integrity_text)
+
     macro_md = ""
     if final_state.get("macro_report") or (final_state.get("macro_snapshot") or {}).get("readings"):
         from tradingagents.report_assets import macro_section_markdown
@@ -298,6 +308,10 @@ def render_report(ticker: str, final_state: dict, settings: dict | None, parts,
     backdrop_md = "\n\n".join(block for block in (macro_md, date_md) if block)
 
     contents, body = [], []
+    if integrity_html:
+        contents.append('<li><a href="#si"><span class="num">!</span> '
+                        '<span class="label">数据完整性</span></a></li>')
+        body.append(f'<section id="si">{integrity_html}</section>')
     if evidence_html:
         contents.append('<li><a href="#s0"><span class="num">0</span> '
                         '<span class="label">Evidence &amp; charts</span></a></li>')

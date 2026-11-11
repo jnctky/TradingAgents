@@ -236,6 +236,31 @@ def report_or_absent(text: str, source: str) -> str:
     return f"(No {source} report in this run: it is not available, not an empty finding.)"
 
 
+def get_data_integrity_instruction() -> str:
+    """The data-integrity iron rule, appended to every agent that can move a conclusion.
+
+    User-mandated core principle (2026-11-11): a technical fetch failure is a
+    technical problem — never a signal, and never something to route around
+    with substitute data or substitute rules. The BNB day that prompted this
+    produced "止损改由事件触发与账户级回撤线上限替代" from a model left to
+    improvise; that sentence is a substitution, not a disclosure, and it is
+    banned. Investment needs exact data: rather miss a conclusion than make
+    one up from the wrong numbers.
+    """
+    return (
+        "\n\n数据完整性铁律（最高优先级，违反即报告无效）：\n"
+        "1. 工具取数失败、返回空/0字节/DATA_UNAVAILABLE/NO_DATA_AVAILABLE，"
+        "都只是技术问题——不是信号，不是情绪，更不是机会。\n"
+        "2. 任一数据源不可用时，你必须在报告开头明确写明「数据不完整」并逐项列出缺失的数据源。\n"
+        "3. 绝对禁止用替代数据、替代指标、替代规则（包括但不限于：事件触发止损、"
+        "账户级回撤线、波动率估计、相似标的映射、历史估值推算）来替代缺失的价格数据"
+        "去给出入场价、止损价、目标价或任何具体点位。\n"
+        "4. 因数据缺失无法可靠得出的结论，必须直接写「无法给出：该数据缺失」，"
+        "并停止该结论；不得换一种说法变相给出。\n"
+        "5. 投资需要的是完全准确的数据：宁可缺一条结论，不可错一条数据。"
+    )
+
+
 def get_horizon_instruction_from_state(state: Mapping[str, Any]) -> str:
     """The horizon playbook for this run, or "" when none is set.
 

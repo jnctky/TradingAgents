@@ -5,6 +5,7 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 
 from tradingagents.agents.context import (
+    get_data_integrity_instruction,
     get_horizon_instruction_from_state,
     get_instrument_context_from_state,
     get_language_instruction,
@@ -60,6 +61,7 @@ def create_trader(llm):
                     "implies, or omit the field if you cannot state a number. "
                     + NO_EXTERNAL_TOOLS
                     + get_horizon_instruction_from_state(state)
+                    + get_data_integrity_instruction()
                     + get_language_instruction()
                 ),
             },

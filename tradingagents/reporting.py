@@ -17,7 +17,8 @@ def analyst_names(keys) -> list[str]:
     return ["sentiment" if key == "social" else key for key in keys or []]
 
 
-def _header(ticker: str, final_state: dict, settings: dict | None) -> str:
+def _header(ticker: str, final_state: dict, settings: dict | None,
+            evidence: dict | None = None) -> str:
     """The report's title and what produced it: analysis date, version, models, analysts, vendors."""
     lines = [f"# Trading Analysis Report: {ticker}", ""]
     if final_state.get("trade_date"):
@@ -43,6 +44,13 @@ def _header(ticker: str, final_state: dict, settings: dict | None) -> str:
             lines.append("- Data vendors: " + ", ".join(f"{k} {v}" for k, v in vendors.items()))
     if final_state.get("memory_note"):
         lines.append(f"- Memory log: {final_state['memory_note']}")
+    # 数据完整性（2026-11-11 用户核心原则）：报告必须开门见山地声明数据状态。
+    if evidence and evidence.get("data_integrity"):
+        from tradingagents.dataflows.data_integrity import header_line
+
+        line = header_line(evidence["data_integrity"])
+        if line:
+            lines.append(line)
     return "\n".join(lines) + "\n\n"
 
 
@@ -126,6 +134,14 @@ def write_report_tree(final_state: dict, ticker: str, save_path, settings: dict 
 
         date_md = context_markdown(date_ctx).strip()
 
+    # 数据完整性条目必须排在一切正文之前（用户核心原则 2026-11-11）：
+    # 读者先看到每项依赖是否正常，再读结论，缺失项才不会被叙事淹没。
+    integrity_md = ""
+    if evidence and evidence.get("data_integrity"):
+        from tradingagents.dataflows.data_integrity import markdown as integrity_markdown
+
+        integrity_md = integrity_markdown(evidence["data_integrity"]).strip()
+
     parts = _report_parts(final_state)
     sections = []
     for heading, folder, written in parts:
@@ -137,11 +153,12 @@ def write_report_tree(final_state: dict, ticker: str, save_path, settings: dict 
 
     backdrop_md = "\n\n".join(block for block in (macro_md, date_md) if block)
     body_md = "\n\n".join(
-        ([evidence_md.strip()] if evidence_md else [])
+        ([integrity_md] if integrity_md else [])
+        + ([evidence_md.strip()] if evidence_md else [])
         + ([f"## 0.5 Macro & event backdrop\n\n{backdrop_md}"] if backdrop_md else [])
         + sections)
     (save_path / "complete_report.md").write_text(
-        _header(ticker, final_state, settings) + body_md, encoding="utf-8"
+        _header(ticker, final_state, settings, evidence=evidence) + body_md, encoding="utf-8"
     )
     if html:
         from tradingagents.report_html import render_report

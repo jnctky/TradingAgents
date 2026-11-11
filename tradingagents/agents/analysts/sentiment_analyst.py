@@ -23,6 +23,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.context import (
+    get_data_integrity_instruction,
     get_horizon_instruction_from_state,
     get_instrument_context_from_state,
     get_language_instruction,
@@ -89,7 +90,7 @@ def create_sentiment_analyst(llm):
             stocktwits_block=stocktwits_block,
             reddit_block=reddit_block,
             subreddits=subreddits,
-            horizon_block=get_horizon_instruction_from_state(state),
+            horizon_block=get_horizon_instruction_from_state(state) + get_data_integrity_instruction(),
         )
 
         prompt = ChatPromptTemplate.from_messages(

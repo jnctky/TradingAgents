@@ -60,6 +60,14 @@ def build_evidence(ticker: str, trade_date: str, trace_path=None) -> dict | None
         if block:
             evidence[key] = block
             filled += 1
+    # 数据完整性（2026-11-11 用户核心原则）：由取数轨迹汇总，进报告开头。
+    # 汇总失败绝不毁掉报告——与 trace 一样是 best-effort，但一旦算出就如实呈现。
+    try:
+        from tradingagents.dataflows.data_integrity import summarize_trace
+
+        evidence["data_integrity"] = summarize_trace(trace_path)
+    except Exception:  # noqa: BLE001 - integrity is additive, never fatal
+        evidence["data_integrity"] = None
     if key := "trace":
         # News links come out of the trace block; attach them at top level so
         # the report section can list them even when the charts are skipped.
