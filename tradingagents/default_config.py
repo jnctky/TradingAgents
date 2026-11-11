@@ -58,6 +58,8 @@ def _coerce(value: str, reference):
         return int(value)
     if isinstance(reference, float):
         return float(value)
+    if reference is None:
+        return value
     return value
 
 
@@ -71,6 +73,16 @@ def _apply_env_overrides(config: dict) -> dict:
             config[key] = _coerce(raw, config.get(key))
         except ValueError as exc:
             raise ValueError(f"Invalid value for {env_var}: {exc}") from exc
+    # Temperature defaults to none, so ``_coerce`` has no type to copy and leaves
+    # the string as-is. It is a number to everything downstream: a run pinned to
+    # "0" must reach the client as 0.0, not as the string "0" (2026-11-11).
+    if config.get("temperature") is not None and not isinstance(config["temperature"], (int, float)):
+        try:
+            config["temperature"] = float(config["temperature"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid value for TRADINGAGENTS_TEMPERATURE: {config['temperature']!r}"
+            ) from exc
     return config
 
 

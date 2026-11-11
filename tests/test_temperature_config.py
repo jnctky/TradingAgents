@@ -45,9 +45,10 @@ class TestTemperatureEnvOverlay:
         import tradingagents.default_config as dc
         monkeypatch.setenv("TRADINGAGENTS_TEMPERATURE", "0.2")
         config = dc.build_default_config()
-        # Stored on config (string from env is fine; consumed via float()).
-        assert config["temperature"] in ("0.2", 0.2)
-        assert float(config["temperature"]) == 0.2
+        # Coerced to a number at the boundary: an unset-by-default knob has no
+        # type of its own, and "0" used to travel as a string (2026-11-11).
+        assert config["temperature"] == 0.2
+        assert isinstance(config["temperature"], float)
 
     def test_default_temperature_is_none(self, monkeypatch):
         import tradingagents.default_config as dc
@@ -74,3 +75,27 @@ class TestProviderKwargsTemperature:
 
     def test_empty_string_omitted(self):
         assert "temperature" not in self._kwargs_for("")
+
+
+@pytest.mark.unit
+def test_zero_temperature_survives_the_env_boundary_as_zero(monkeypatch):
+    """0 must stay 0, not fall back to "unset" or become the string "0"."""
+    import tradingagents.default_config as dc
+    monkeypatch.setenv("TRADINGAGENTS_TEMPERATURE", "0")
+    config = dc.build_default_config()
+    assert config["temperature"] == 0
+    llm = create_llm_client(provider="openai", model="gpt-4.1",
+                            temperature=config["temperature"], api_key="placeholder").get_llm()
+    assert llm.temperature == 0.0
+
+
+@pytest.mark.unit
+def test_zero_temperature_survives_the_env_boundary_as_zero(monkeypatch):
+    """0 must stay 0, not fall back to "unset" or become the string "0"."""
+    import tradingagents.default_config as dc
+    monkeypatch.setenv("TRADINGAGENTS_TEMPERATURE", "0")
+    config = dc.build_default_config()
+    assert config["temperature"] == 0
+    llm = create_llm_client(provider="openai", model="gpt-4.1",
+                            temperature=config["temperature"], api_key="placeholder").get_llm()
+    assert llm.temperature == 0.0

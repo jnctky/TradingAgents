@@ -166,3 +166,60 @@ def test_the_sentiment_prompt_names_the_subreddits_searched(monkeypatch):
     text = _prompt_text(captured["prompt"])
     assert "r/Bitcoin, r/CryptoCurrency, r/CryptoMarkets" in text
     assert "wallstreetbets" not in text
+
+
+@pytest.mark.unit
+def test_portfolio_manager_sees_the_call_it_already_made_this_session():
+    """同一 session 重跑必须把上一轮评级摆到台面（2026-11-11）。
+
+    没有这一行，模型在不变的数据上会独立再拍一次，翻转率 40%（5 只里 2 只）。
+    """
+    from tradingagents.agents.schemas import PortfolioDecision, PortfolioRating
+
+    captured = {}
+    llm = _capturing_llm(
+        captured,
+        PortfolioDecision(rating=PortfolioRating.HOLD, executive_summary="x",
+                          investment_thesis="y"),
+    )
+    risk = {
+        "history": "h", "aggressive_history": "a", "conservative_history": "c",
+        "neutral_history": "n", "current_aggressive_response": "",
+        "current_conservative_response": "", "current_neutral_response": "",
+        "latest_speaker": "Neutral", "count": 1,
+    }
+    create_portfolio_manager(llm)({
+        "company_of_interest": "GS",
+        "risk_debate_state": risk,
+        "investment_plan": "plan",
+        "trader_investment_plan": "trader plan",
+        "prior_call": "Underweight, target 865.82, confidence 0.68",
+    })
+    text = _prompt_text(captured["prompt"])
+    assert "Underweight, target 865.82" in text
+    assert "the earlier call stands" in text
+
+
+@pytest.mark.unit
+def test_a_first_pass_does_not_mention_a_prior_call():
+    from tradingagents.agents.schemas import PortfolioDecision, PortfolioRating
+
+    captured = {}
+    llm = _capturing_llm(
+        captured,
+        PortfolioDecision(rating=PortfolioRating.HOLD, executive_summary="x",
+                          investment_thesis="y"),
+    )
+    risk = {
+        "history": "h", "aggressive_history": "a", "conservative_history": "c",
+        "neutral_history": "n", "current_aggressive_response": "",
+        "current_conservative_response": "", "current_neutral_response": "",
+        "latest_speaker": "Neutral", "count": 1,
+    }
+    create_portfolio_manager(llm)({
+        "company_of_interest": "GS",
+        "risk_debate_state": risk,
+        "investment_plan": "plan",
+        "trader_investment_plan": "trader plan",
+    })
+    assert "already called this name" not in _prompt_text(captured["prompt"])

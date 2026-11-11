@@ -304,6 +304,12 @@ class TradingAgentsGraph:
         Injects the resolved instrument identity for every agent (#814). The
         memory log's lessons are not here: the graph's Memory Log step settles
         and loads them alongside the analysts (see ``_memory_step``).
+
+        ``prior_call`` is the call this same pipeline made on this same name
+        earlier in the session (a re-run on unchanged data). It rides on the
+        config because only the caller knows it, and the Portfolio Manager has
+        to see it: two opposite ratings an hour apart, with nothing in between,
+        is the failure mode that makes every rating untrustworthy.
         """
         return self.propagator.create_initial_state(
             company_name,
@@ -311,7 +317,8 @@ class TradingAgentsGraph:
             asset_type=asset_type,
             instrument_context=self.resolve_instrument_context(company_name, asset_type, trade_date),
             portfolio_context=portfolio.render(company_name) if portfolio is not None else "",
-        ) | {"horizon": str(self.config.get("horizon") or DEFAULT_HORIZON)}
+        ) | {"horizon": str(self.config.get("horizon") or DEFAULT_HORIZON),
+             "prior_call": str(self.config.get("prior_call") or "")}
 
     def _memory_step(self, state):
         """The graph's Memory Log step, alongside the analysts (#1428): settle every

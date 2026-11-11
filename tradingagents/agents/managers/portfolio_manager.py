@@ -41,6 +41,18 @@ def create_portfolio_manager(llm):
             if past_context
             else ""
         )
+        # 同一 session 的重跑（2026-11-11）：数据没变，结论却翻向，等于让读者
+        # 无法相信任何一次输出。把上一轮的评级摆到台面上，翻向必须交代新证据。
+        prior_call = str(state.get("prior_call") or "").strip()
+        prior_line = (
+            f"- This pipeline already called this name earlier in this session: "
+            f"{prior_call}. The data has not changed since. If you are about to move "
+            "to the other side of Hold, name the evidence that was missed and say why "
+            "it outweighs the earlier read in one sentence; if you cannot, the earlier "
+            "call stands and you should keep it.\n"
+            if prior_call
+            else ""
+        )
 
         prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
 
@@ -60,7 +72,7 @@ def create_portfolio_manager(llm):
 **Context:**
 - Research Manager's investment plan: **{research_plan}**
 - Trader's transaction proposal: **{trader_plan}**
-{lessons_line}
+{lessons_line}{prior_line}
 **Risk Analysts Debate History:**
 {history}
 

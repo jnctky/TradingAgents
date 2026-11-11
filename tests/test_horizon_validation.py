@@ -175,3 +175,29 @@ def test_a_row_from_before_the_field_existed_is_not_punished():
     # turn the whole batch red over a field their text never carried.
     verdict = pf.validate_row(_row("Buy", 115.0), "position")
     assert verdict["passed"] is True, verdict["flags"]
+
+
+# --- same-session re-runs must not flip sides silently ----------------------
+
+@pytest.mark.unit
+def test_a_rating_that_crosses_hold_on_a_rerun_is_flagged():
+    """2026-11-11：GS 一小时内从 Underweight 变 Overweight，数据没变。
+
+    这不是规则错误，但仍必须亮出来——一份会自己翻向的评级，读者无法据以行动。
+    """
+    row = {**_row("Overweight", 95.0), "prior_rating": "Underweight"}
+    verdict = pf.validate_row(row, "position")
+    assert verdict["passed"] is False
+    assert _flags(verdict, "rating_flipped_on_rerun")
+
+
+@pytest.mark.unit
+def test_a_rerun_that_stays_on_the_same_side_is_not_flagged():
+    # Underweight → Sell 是同一侧、同向加一档，属于措辞收敛，不是翻向。
+    row = {**_row("Sell", 90.0), "prior_rating": "Underweight"}
+    assert pf.validate_row(row, "position")["passed"] is True
+
+
+@pytest.mark.unit
+def test_a_first_pass_has_nothing_to_flip_from():
+    assert pf.validate_row(_row("Overweight", 110.0), "position")["passed"] is True
