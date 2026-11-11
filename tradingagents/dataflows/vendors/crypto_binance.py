@@ -186,6 +186,31 @@ def daily_bars(symbol: str, start: str, end: str) -> pd.DataFrame:
     return frame[~frame.index.duplicated(keep="last")]
 
 
+def load_ohlcv(symbol: str, as_of_date: str, fill_gaps: bool = True) -> pd.DataFrame:
+    """OHLCV frame on or before ``as_of_date``, shaped like the sidecar loader.
+
+    Settlement, the verification snapshot and the report charts all read prices
+    through :mod:`tradingagents.dataflows.vendors.ohlcv`, which asked only the
+    equity vendors — so a coin's settling price was reported "unavailable" even
+    when the Binance path upstream was healthy. Same contract as
+    ``sidecar.market.load_ohlcv``: a ``Date`` column plus Open/High/Low/Close/
+    Adj Close/Volume, forward-filled when asked.
+    """
+    start = (pd.Timestamp(as_of_date) - pd.Timedelta(days=400)).strftime("%Y-%m-%d")
+    frame = daily_bars(symbol, start, as_of_date)
+
+    out = frame.rename(columns={"open": "Open", "high": "High", "low": "Low",
+                                "close": "Close", "volume": "Volume"})
+    out["Adj Close"] = out["Close"]
+    if fill_gaps:
+        # A coin trades every day, so this only matters when Binance skipped a
+        # candle; still, the callers assume no holes.
+        out[["Open", "High", "Low", "Close", "Adj Close"]] = (
+            out[["Open", "High", "Low", "Close", "Adj Close"]].ffill())
+    out.index.name = "Date"
+    return out.reset_index()
+
+
 def get_stock_data(
     symbol: Annotated[str, "ticker symbol of the coin"],
     start_date: Annotated[str, "Start date in yyyy-mm-dd format"],

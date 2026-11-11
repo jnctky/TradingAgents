@@ -12,11 +12,14 @@ blackout turned into a report without a price. The rule pinned here:
 
 import json
 
+import pandas as pd
 import pytest
 
 from tradingagents.dataflows import router as router_mod
 from tradingagents.dataflows.errors import VendorUnavailableError
 from tradingagents.dataflows.symbols import is_crypto_symbol
+from tradingagents.dataflows.vendors import crypto_binance as binance_mod
+from tradingagents.dataflows.vendors import ohlcv as vendor_ohlcv
 
 
 class TestCryptoSymbolDetection:
@@ -125,3 +128,54 @@ class TestCryptoFundamentals:
         out = router_mod.route_to_vendor("get_fundamentals", "NVDA", "2026-11-10")
 
         assert out == "fundamentals:sidecar"
+
+
+class TestSettlementPricePath:
+    """The verification snapshot and settlement read prices outside the router.
+
+    They call ``vendors.ohlcv.load_ohlcv`` directly, so its chain needs the same
+    crypto rule — otherwise a coin's settling price is reported "unavailable"
+    while the analyst's own price series came back fine.
+    """
+
+    def test_a_coin_takes_binance_first(self):
+        loaders = {"sidecar": object(), "openbb": object(), "binance": object()}
+
+        assert vendor_ohlcv.resolve_chain("BNB", loaders) == ["binance", "sidecar", "openbb"]
+
+    def test_an_equity_keeps_the_configured_order(self):
+        loaders = {"sidecar": object(), "openbb": object(), "binance": object()}
+
+        assert vendor_ohlcv.resolve_chain("NVDA", loaders) == ["sidecar", "openbb"]
+
+    def test_an_explicit_binance_in_config_keeps_its_place(self, monkeypatch):
+        monkeypatch.setattr(vendor_ohlcv, "configured_chain", lambda: ["sidecar", "binance"])
+        loaders = {"sidecar": object(), "openbb": object(), "binance": object()}
+
+        assert vendor_ohlcv.resolve_chain("BNB", loaders) == ["sidecar", "binance"]
+
+    def test_the_frame_speaks_the_loader_contract(self, monkeypatch):
+        # Same columns as sidecar/openbb so settlement never sees a coin-shaped
+        # frame that only one code path understands.
+        frame = pd.DataFrame({
+            "Date": pd.to_datetime(["2026-11-09", "2026-11-10"]),
+            "open": [1.0, 2.0], "high": [1.5, 2.5], "low": [0.5, 1.5],
+            "close": [1.2, 2.2], "volume": [10.0, 20.0],
+        }).set_index("Date")
+        monkeypatch.setattr(binance_mod, "daily_bars", lambda *a, **k: frame)
+
+        out = binance_mod.load_ohlcv("BNB", "2026-11-10")
+
+        assert list(out.columns) == ["Date", "Open", "High", "Low", "Close", "Volume", "Adj Close"]
+        assert out["Adj Close"].tolist() == [1.2, 2.2]
+        assert out["Date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-11-09", "2026-11-10"]
+
+    def test_a_coin_has_no_insiders(self, monkeypatch):
+        called: list[str] = []
+        monkeypatch.setitem(router_mod.VENDOR_METHODS["get_insider_transactions"], "openbb",
+                            lambda *a, **k: called.append("openbb"))
+
+        out = router_mod.route_to_vendor("get_insider_transactions", "BNB", "2026-11-10")
+
+        assert out.startswith("NOT_APPLICABLE")
+        assert called == []

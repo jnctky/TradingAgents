@@ -131,6 +131,10 @@ CRYPTO_VENDOR_CHAIN = ("binance", "sidecar")
 #: failure — the integrity summary labels it 不适用 instead of 失败.
 CRYPTO_FUNDAMENTAL_METHODS = frozenset({
     "get_fundamentals", "get_balance_sheet", "get_cashflow", "get_income_statement",
+    # A coin has no insiders either. Without this the request walked into the
+    # OpenBB equity routes, burned six retries on a 204 body and left a
+    # "vendor failed" line that reads like an outage.
+    "get_insider_transactions",
 })
 
 CRYPTO_FUNDAMENTAL_SENTINEL = (

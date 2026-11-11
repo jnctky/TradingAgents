@@ -15,19 +15,28 @@ import pandas as pd
 
 from tradingagents.dataflows.config import get_config
 from tradingagents.dataflows.errors import NoMarketDataError, VendorUnavailableError
+from tradingagents.dataflows.symbols import is_crypto_symbol
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_CHAIN = ("sidecar", "openbb")
 
+#: A coin has no equity bars; the equity chain can only reject the request.
+#: Settlement and the verification snapshot read prices here, not through the
+#: router, so this chain has to answer crypto on its own terms.
+CRYPTO_CHAIN = ("binance", "sidecar")
+
 
 def _loaders() -> dict[str, object]:
     """Import lazily so a missing optional vendor cannot break module import."""
+    from .crypto_binance import load_ohlcv as binance_loader
     from .openbb.ohlcv import load_ohlcv as openbb_loader
     from .sidecar.market import load_ohlcv as sidecar_loader
 
     # yfinance is intentionally not registered: it is throttled on this network.
-    return {"sidecar": sidecar_loader, "openbb": openbb_loader}
+    # Binance is keyed separately and only reached for crypto symbols, so an
+    # equity never pays a failed hop for it.
+    return {"sidecar": sidecar_loader, "openbb": openbb_loader, "binance": binance_loader}
 
 
 def configured_chain() -> list[str]:
@@ -36,10 +45,24 @@ def configured_chain() -> list[str]:
     return chain or list(DEFAULT_CHAIN)
 
 
+def resolve_chain(symbol: str, loaders: dict[str, object]) -> list[str]:
+    """The chain that can actually serve ``symbol``.
+
+    Crypto takes Binance first — trying the equity chain only produced a 400
+    from sidecar and a 204 from OpenBB before the same data was available. The
+    configured vendors still follow it as fallbacks, and a config that names
+    Binance explicitly keeps its own order.
+    """
+    chain = configured_chain()
+    if is_crypto_symbol(symbol) and "binance" not in chain:
+        chain = ["binance", *chain]
+    return [v for v in chain if v in loaders]
+
+
 def load_ohlcv(symbol: str, as_of_date: str, fill_gaps: bool = True) -> pd.DataFrame:
     """OHLCV for ``symbol`` on or before ``as_of_date`` from the first vendor that answers."""
     loaders = _loaders()
-    chain = [v for v in configured_chain() if v in loaders]
+    chain = resolve_chain(symbol, loaders)
     if not chain:
         raise VendorUnavailableError(
             f"no OHLCV-capable vendor in the configured chain "
