@@ -152,6 +152,43 @@ def test_a_dead_calendar_reaches_the_trace_instead_of_only_the_prose(store, call
     assert by_category["politics"]["ok"] is True
 
 
+def test_a_reused_context_still_reports_the_calendar_and_politics(store, calls,
+                                                                 tmp_path, monkeypatch):
+    # A batch builds the context once; every later ticker reuses it. Without a
+    # trace line the integrity table would show no calendar row at all for
+    # those tickers, so the analyst's prose would be the only evidence.
+    trace = tmp_path / "trace.jsonl"
+    monkeypatch.setenv("TA_TRACE_FILE", str(trace))
+    monkeypatch.setattr(dc, "fetch_politics", lambda d: {
+        "trade_date": d, "window": [d, d], "source": "feed", "scanned": 2,
+        "available": True, "topics": [],
+    })
+
+    dc.build_date_context(TODAY)
+    trace.unlink()
+    dc.build_date_context(TODAY)                      # cache hit
+
+    rows = [json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()]
+    assert {row["category"] for row in rows} == {"events", "politics"}
+    assert all(row["ok"] for row in rows)
+    assert all(row["vendor"] == "cache" for row in rows)
+
+
+def test_a_reused_context_keeps_a_failure_a_failure(store, calls, tmp_path, monkeypatch):
+    trace = tmp_path / "trace.jsonl"
+    monkeypatch.setenv("TA_TRACE_FILE", str(trace))
+    monkeypatch.setattr(dc, "fetch_events", lambda d: (_ for _ in ()).throw(RuntimeError("calendar 422")))
+
+    dc.build_date_context(TODAY)
+    trace.unlink()
+    dc.build_date_context(TODAY)
+
+    rows = {json.loads(line)["category"]: json.loads(line)
+            for line in trace.read_text(encoding="utf-8").splitlines()}
+    assert rows["events"]["ok"] is False
+    assert "422" in rows["events"]["error"]
+
+
 def test_a_zero_byte_political_feed_is_traced_as_a_failure(store, calls, tmp_path, monkeypatch):
     trace = tmp_path / "trace.jsonl"
     monkeypatch.setenv("TA_TRACE_FILE", str(trace))
@@ -168,3 +205,46 @@ def test_a_zero_byte_political_feed_is_traced_as_a_failure(store, calls, tmp_pat
     # An available=False payload is a miss even though no exception was raised.
     assert politics["ok"] is False
     assert "0 bytes" in politics["error"]
+
+
+def test_a_context_that_failed_everywhere_is_rebuilt_after_a_while(store, calls, monkeypatch):
+    # One 422 at 15:00 used to lock 「日历不可用」 into every report for that date,
+    # because a historical date's context is cached forever.
+    attempts = {"events": 0}
+
+    def dead(_date):
+        attempts["events"] += 1
+        raise RuntimeError("calendar 422")
+
+    monkeypatch.setattr(dc, "fetch_events", dead)
+    dc.build_date_context(PAST)
+    assert attempts["events"] == 1
+
+    assert dc.build_date_context(PAST)["events"].get("error")   # reused while fresh
+    assert attempts["events"] == 1
+
+    old = time.time() - (dc.FAILURE_RETRY_MINUTES + 1) * 60
+    os.utime(dc.context_path(PAST), (old, old))
+    dc.build_date_context(PAST)
+    assert attempts["events"] == 2                              # retried
+
+
+def test_a_context_with_one_section_working_is_kept(store, calls, monkeypatch):
+    # A dead calendar beside live headlines is worth keeping: rebuilding would
+    # only re-fetch what already answered.
+    attempts = {"events": 0}
+
+    def dead(_date):
+        attempts["events"] += 1
+        raise RuntimeError("calendar 422")
+
+    monkeypatch.setattr(dc, "fetch_events", dead)
+    monkeypatch.setattr(dc, "fetch_politics", lambda d: {
+        "trade_date": d, "window": [d, d], "source": "feed", "scanned": 1,
+        "available": True, "topics": [],
+    })
+    dc.build_date_context(PAST)
+    old = time.time() - (dc.FAILURE_RETRY_MINUTES + 1) * 60
+    os.utime(dc.context_path(PAST), (old, old))
+    dc.build_date_context(PAST)
+    assert attempts["events"] == 1

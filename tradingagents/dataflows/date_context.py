@@ -46,6 +46,11 @@ logger = logging.getLogger(__name__)
 CONTEXT_VERSION = 1
 REFRESH_MINUTES = 45
 
+#: How long a cache whose every section failed is kept before it is retried.
+#: Short enough that a provider that came back is used by the next run, long
+#: enough that one batch does not re-ask for every ticker.
+FAILURE_RETRY_MINUTES = 15
+
 
 def context_dir() -> Path:
     """Where per-date contexts live: ``date_context_dir`` if set, else the data cache."""
@@ -65,6 +70,27 @@ def _is_fresh(path: Path, trade_date: str) -> bool:
     if is_historical(trade_date):
         return True                    # a settled date's context cannot change
     return time.time() - path.stat().st_mtime < REFRESH_MINUTES * 60
+
+
+def _stale_failure(context: dict[str, Any], path: Path) -> bool:
+    """A cached build that failed everywhere should not be reused forever.
+
+    Historical dates are cached indefinitely because a settled day's calendar
+    cannot change — but a 422 from a provider that restarted five minutes later
+    is not a property of the date. Without this, one bad morning writes
+    「日历不可用」 into every report of the day. Retried after a short window so
+    a batch running while the feed is really down does not re-ask per ticker.
+    """
+    sections = (context.get("events") or {}, context.get("politics") or {})
+    failed = [s for s in sections
+              if s.get("error") or (s and s.get("available") is False)]
+    if len(failed) < len(sections):
+        return False                   # something came back; keep what we have
+    try:
+        age = time.time() - path.stat().st_mtime
+    except OSError:
+        return True
+    return age > FAILURE_RETRY_MINUTES * 60
 
 
 def load_context(trade_date: str) -> dict[str, Any] | None:
@@ -91,6 +117,32 @@ def save_context(context: dict[str, Any]) -> Path:
     return path
 
 
+def _trace_reuse(context: dict[str, Any]) -> None:
+    """Record that this run's calendar and politics came from the cached context.
+
+    A batch builds the date context once and every later ticker reuses it, so
+    without this the integrity table would carry no calendar row at all for
+    those tickers — leaving the analyst's prose as the only evidence, which is
+    exactly the asymmetry this table exists to remove. The recorded verdict is
+    the cached payload's own: a build that failed stays a failure here.
+    """
+    trade_date = str(context.get("trade_date") or "")
+    events = context.get("events") or {}
+    politics = context.get("politics") or {}
+    for method, category, payload in (("economic_calendar", "events", events),
+                                      ("political_headlines", "politics", politics)):
+        problem = payload.get("error") or (
+            None if payload.get("available") is not False else payload.get("reason"))
+        if problem:
+            record_call(method=f"{method}_cached", category=category, vendor="cache",
+                        chain=["cache"], args=(trade_date,), kwargs={}, ms=0,
+                        error=str(problem))
+        else:
+            record_call(method=f"{method}_cached", category=category, vendor="cache",
+                        chain=["cache"], args=(trade_date,), kwargs={}, ms=0,
+                        result=payload)
+
+
 def build_date_context(trade_date: str, *, refresh: bool = False) -> dict[str, Any]:
     """The calendar, the political headlines and the odds for one analysis date."""
     datetime.strptime(trade_date, "%Y-%m-%d")       # fail early on a malformed date
@@ -98,9 +150,12 @@ def build_date_context(trade_date: str, *, refresh: bool = False) -> dict[str, A
         path = context_path(trade_date)
         if path.exists() and _is_fresh(path, trade_date):
             cached = load_context(trade_date)
-            if cached:
+            if cached and not _stale_failure(cached, path):
                 logger.info("Date context for %s reused from %s", trade_date, path.name)
+                _trace_reuse(cached)
                 return cached
+            if cached:
+                logger.info("Date context for %s failed last time; rebuilding", trade_date)
 
     try:
         with stopwatch() as watch:
