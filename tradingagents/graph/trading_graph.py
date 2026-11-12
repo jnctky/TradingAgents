@@ -310,12 +310,22 @@ class TradingAgentsGraph:
         config because only the caller knows it, and the Portfolio Manager has
         to see it: two opposite ratings an hour apart, with nothing in between,
         is the failure mode that makes every rating untrustworthy.
+
+        ``session_context`` is the extended-session tape (pre-market or
+        after-hours) fetched by the caller for the slot this run answers. It
+        rides with the instrument identity so every analyst reads the same
+        numbers — and reads them as an entry reference, not as a close.
         """
+        instrument_context = self.resolve_instrument_context(company_name, asset_type, trade_date)
+        session_context = str(self.config.get("session_context") or "").strip()
+        if session_context:
+            instrument_context = (f"{instrument_context}\n\n{session_context}"
+                                  if instrument_context else session_context)
         return self.propagator.create_initial_state(
             company_name,
             trade_date,
             asset_type=asset_type,
-            instrument_context=self.resolve_instrument_context(company_name, asset_type, trade_date),
+            instrument_context=instrument_context,
             portfolio_context=portfolio.render(company_name) if portfolio is not None else "",
         ) | {"horizon": str(self.config.get("horizon") or DEFAULT_HORIZON),
              "prior_call": str(self.config.get("prior_call") or "")}

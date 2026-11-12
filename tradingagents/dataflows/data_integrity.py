@@ -61,6 +61,10 @@ CATEGORY_LABELS: dict[str, str] = {
     # the analyst's prose.
     "events": "经济日历",
     "politics": "政治头条",
+    # Extended-session tape (pre-market / after-hours). Supplementary by
+    # design: the pre-open run uses it to read the gap, and its absence must
+    # be visible without invalidating a conclusion built on the close.
+    "premarket": "盘前/盘后快照",
 }
 
 STATUS_LABELS = {

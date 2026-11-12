@@ -108,7 +108,7 @@ def test_tail_ticker_gets_full_window_of_its_own(stuck_env, monkeypatch):
         assert "单只运行超过 2 分钟" in out[ticker]["error"]
         # 两只的 elapsed 都约 180s；旧实现里第二只会是 0~60s
         assert out[ticker]["elapsed_sec"] >= 120
-    saved = json.loads((stuck_env / "decisions-2026-11-05-position.json").read_text(encoding="utf-8"))
+    saved = json.loads((stuck_env / "decisions-2026-11-05-position-post.json").read_text(encoding="utf-8"))
     assert saved["results"]["TSLA"]["status"] == "timeout"
 
 
