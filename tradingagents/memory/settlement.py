@@ -67,7 +67,7 @@ def _by_day(closes):
 
 def fetch_returns(
     ticker: str, trade_date: str, holding_days: int = 5,
-    benchmark: str = "SPY",
+    benchmark: str = "SPY", today: str | None = None,
 ) -> tuple[float | None, float | None, int | None, str | None]:
     """Fetch raw and alpha return for ticker over holding_days after trade_date.
 
@@ -75,17 +75,28 @@ def fetch_returns(
     ``trade_date`` reads news published after that day's close (#1518).
 
     ``benchmark`` is the index used as the alpha baseline (resolved by the
-    caller via ``resolve_benchmark``). Returns ``(raw_return, alpha_return,
-    holding_days, resolution_date)`` — where ``resolution_date`` is the date
-    of the last price bar used, i.e. when the outcome became known (#1251) —
-    or ``(None, None, None, None)`` when the full holding window has not traded
-    yet (#1169). A failure to get or read the prices is raised, for the caller
-    to report.
+    caller via ``resolve_benchmark``). ``today`` overrides the current date
+    (``YYYY-MM-DD``) for tests.
+
+    Returns ``(raw_return, alpha_return, holding_days, resolution_date)`` —
+    where ``resolution_date`` is the date of the last price bar used, i.e. when
+    the outcome became known (#1251) — or ``(None, None, None, None)`` when the
+    full holding window has not traded yet (#1169). A failure to get or read
+    the prices is raised, for the caller to report.
     """
     start = datetime.strptime(trade_date, "%Y-%m-%d")
-    # holding_days counts trading days after the entry session, so ask for the
+    # holding_days counts trading days after the entry session, so reserve the
     # calendar span they occupy (about 7 for every 5) plus a week for holidays.
-    end = start + timedelta(days=round((holding_days + 1) * 7 / 5) + 7)
+    horizon = start + timedelta(days=round((holding_days + 1) * 7 / 5) + 7)
+    # Cap that span at today. The extra days only reserve room for sessions the
+    # window may need; they are not a request for prices that cannot exist yet.
+    # Vendors reject a frame whose latest row is far behind the requested end
+    # (MAX_OHLCV_STALE_DAYS, #1021), so an end in the future makes them refuse
+    # correct data and turns every still-open window into a false "could not be
+    # settled" (#1169). Capped, an unfinished window falls through to the
+    # pending branch below instead of being reported as a failure.
+    today_dt = datetime.strptime(today, "%Y-%m-%d") if today else datetime.now()
+    end = min(horizon, today_dt)
     end_str = end.strftime("%Y-%m-%d")
 
     # Closes for the instrument the analysis priced (XAUUSD -> GC=F, #984),

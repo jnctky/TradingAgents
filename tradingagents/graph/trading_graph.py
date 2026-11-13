@@ -345,8 +345,13 @@ class TradingAgentsGraph:
             # Another run settling the same log does the work; this one goes on.
             done = self.settle_all_pending(wait=False)
             if done.failed:
+                # A window that has not traded yet is skipped silently now, so
+                # whatever lands here is a real price or reflection failure —
+                # name it, instead of leaving the report with a bare count.
+                detail = "; ".join(f"{ticker} {date}" for ticker, date, _ in done.failed[:3])
+                more = f" (+{len(done.failed) - 3} more)" if len(done.failed) > 3 else ""
                 note = (f"{len(done.failed)} past decision(s) could not be settled this run "
-                        "and stay pending.")
+                        f"and stay pending: {detail}{more}.")
         except Exception as exc:
             logger.warning("Settling past decisions failed: %s", exc)
             note = f"Past decisions could not be settled this run ({type(exc).__name__}); they stay pending."
