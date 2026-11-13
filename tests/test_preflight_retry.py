@@ -129,3 +129,25 @@ def test_run_preflight_records_attempts_per_source(tmp_path, monkeypatch):
     assert all(s["attempts"] == 1 for s in payload["sources"])
     on_disk = (tmp_path / "preflight-latest.json").read_text(encoding="utf-8")
     assert '"attempts"' in on_disk
+
+
+def test_every_probe_helper_returns_a_three_tuple(monkeypatch):
+    """run_preflight 解包 (ok, error, attempts) 三元组——任何一个 _probe_*
+    助手还按旧的二元组返回，整批预检就会崩成 exit 3（2026-11-13 真实批次
+    踩过：_probe_prediction 改漏了）。这里把每个助手都真实调用一遍。"""
+    monkeypatch.setattr(preflight, "_polymarket_call", lambda *_a: "ok")
+    monkeypatch.setattr(
+        "tradingagents.dataflows.vendors.polymarket.get_prediction_markets",
+        lambda *_a, **_k: "ok",
+    )
+    start5, _ = preflight._window("2026-11-13", 5)
+    # 与 _probe_units 相同的实参形状：签名漂移同样会炸掉整批预检。
+    calls = [
+        (preflight._probe_prediction, ("2026-11-13",)),
+        (preflight._probe_macro, ("2026-11-13",)),
+        (preflight._probe_reddit, (start5, "2026-11-13")),
+        (preflight._probe_stocktwits, (start5, "2026-11-13")),
+    ]
+    for fn, args in calls:
+        result = fn(*args)
+        assert isinstance(result, tuple) and len(result) == 3, f"{fn.__name__} returned {result!r}"
