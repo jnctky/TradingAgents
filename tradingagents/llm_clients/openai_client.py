@@ -283,6 +283,12 @@ OPENAI_COMPATIBLE_PROVIDERS: dict[str, ProviderSpec] = {
     # reasoning_content, so reuse the DeepSeek chat adapter.
     "router-one": ProviderSpec(base_url="https://api.router.one/v1",
                                chat_class=DeepSeekChatOpenAI),
+    # Ark (Volcengine 火山方舟): OpenAI-compatible coding gateway serving
+    # DeepSeek models — same reasoning_content round-trip as Router.one, so
+    # reuse the DeepSeek chat adapter. API key stays in the system
+    # environment variable ARK_API_KEY (never persisted to any file).
+    "ark":        ProviderSpec(base_url="https://ark.cn-beijing.volces.com/api/coding/v3",
+                               chat_class=DeepSeekChatOpenAI),
     "mistral":    ProviderSpec(base_url="https://api.mistral.ai/v1"),
     "kimi":       ProviderSpec(base_url="https://api.moonshot.ai/v1"),
     "groq":       ProviderSpec(base_url="https://api.groq.com/openai/v1"),

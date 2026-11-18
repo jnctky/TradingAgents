@@ -32,6 +32,10 @@ PROVIDER_API_KEY_ENV: dict[str, str | None] = {
     # Router.one: hosted OpenAI-compatible gateway (api.router.one/v1),
     # domestic direct connection; one key covers all routed models.
     "router-one": "ROUTER_ONE_API_KEY",
+    # Ark (Volcengine 火山方舟): OpenAI-compatible coding gateway
+    # (ark.cn-beijing.volces.com/api/coding/v3). The key lives only in the
+    # system environment variable ARK_API_KEY — never written to disk.
+    "ark":        "ARK_API_KEY",
     # Additional hosted OpenAI-compatible providers (model is user-specified).
     # kimi -> Moonshot AI; nvidia -> NVIDIA NIM.
     "mistral":    "MISTRAL_API_KEY",

@@ -93,6 +93,24 @@ _MINIMAX_MODELS: dict[str, list[ModelOption]] = {
 }
 
 
+# Ark (Volcengine 火山方舟) coding gateway — OpenAI-compatible, DeepSeek
+# lineup. The economy tier is the default cheap workhorse; the non-economy
+# Flash is the stronger deep-tier pick. "Custom model ID" stays available
+# for other Ark-served models.
+_ARK_MODELS: dict[str, list[ModelOption]] = {
+    "quick": [
+        ("DeepSeek V4.1 Flash Economy - fast, cost-efficient", "deepseek-v4.1-flash-economy"),
+        ("DeepSeek V4.1 Flash - stronger, 1M ctx", "deepseek-v4.1-flash"),
+        ("Custom model ID", "custom"),
+    ],
+    "deep": [
+        ("DeepSeek V4.1 Flash - stronger tier, 1M ctx", "deepseek-v4.1-flash"),
+        ("DeepSeek V4.1 Flash Economy - fast, cost-efficient", "deepseek-v4.1-flash-economy"),
+        ("Custom model ID", "custom"),
+    ],
+}
+
+
 MODEL_OPTIONS: ProviderModeOptions = {
     "openai": {
         "quick": [
@@ -191,6 +209,7 @@ MODEL_OPTIONS: ProviderModeOptions = {
     "kimi": _KIMI_MODELS,
     "minimax": _MINIMAX_MODELS,
     "minimax-cn": _MINIMAX_MODELS,
+    "ark": _ARK_MODELS,
     # OpenRouter: fetched dynamically. Azure: any deployed model name.
     # Ollama display labels intentionally omit a "local" marker — the
     # endpoint is now configurable via OLLAMA_BASE_URL, so the same labels

@@ -43,6 +43,7 @@ def test_every_select_llm_provider_choice_has_an_entry():
         ("glm-cn",     "ZHIPU_CN_API_KEY"),
         ("minimax",    "MINIMAX_API_KEY"),
         ("minimax-cn", "MINIMAX_CN_API_KEY"),
+        ("ark",        "ARK_API_KEY"),
         ("openrouter", "OPENROUTER_API_KEY"),
     ],
 )

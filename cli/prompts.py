@@ -390,6 +390,7 @@ def _llm_provider_table() -> list[tuple[str, str, str | None]]:
         # platform is the separate glm-cn key, chosen in the region prompt.
         ("GLM", "glm", "https://api.z.ai/api/paas/v4/"),
         ("MiniMax", "minimax", "https://api.minimax.io/v1"),
+        ("Ark (火山方舟)", "ark", "https://ark.cn-beijing.volces.com/api/coding/v3"),
         ("OpenRouter", "openrouter", "https://openrouter.ai/api/v1"),
         ("Mistral", "mistral", "https://api.mistral.ai/v1"),
         ("Kimi (Moonshot)", "kimi", "https://api.moonshot.ai/v1"),
