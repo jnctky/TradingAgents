@@ -32,8 +32,33 @@ from ._net import opener
 
 logger = logging.getLogger(__name__)
 
-BINANCE_BASE = "https://api.binance.com/api/v3/klines"
+# Binance rotates which spot host a proxy exit route can reach; on 2026-11-19
+# api.binance.com started timing out through the user's 10808 proxy while
+# api1/api2 answered in ~2s. Try them in order — first one that answers wins.
+BINANCE_HOSTS = (
+    "https://api.binance.com",
+    "https://api1.binance.com",
+    "https://api2.binance.com",
+    "https://data-api.binance.vision",   # public data mirror, same /api/v3 paths
+)
 REQUEST_TIMEOUT = 20
+
+
+def _fetch_klines(query: str) -> list | None:
+    """GET klines trying each host in turn; None when every host fails."""
+    for host in BINANCE_HOSTS:
+        request = urllib.request.Request(
+            f"{host}/api/v3/klines?{query}",
+            headers={"User-Agent": "TradingAgents/1.0", "Accept": "application/json"},
+        )
+        try:
+            with opener().open(request, timeout=REQUEST_TIMEOUT) as response:
+                rows = json.loads(response.read().decode("utf-8", "replace"))
+            if isinstance(rows, list):
+                return rows
+        except Exception as exc:                   # noqa: BLE001 — try next host
+            logger.warning("Binance klines via %s failed: %s", host, exc)
+    return None
 
 # Watchlist symbols that are quoted against USDT on Binance. A symbol missing
 # here is not "no data", it is "we have not mapped it yet" — the caller falls
@@ -86,15 +111,9 @@ def daily_closes(symbol: str, start: str, end: str) -> list[tuple[str, float]]:
         "endTime": _ms(end) + 86_400_000 - 1,
         "limit": 1000,
     })
-    request = urllib.request.Request(
-        f"{BINANCE_BASE}?{query}",
-        headers={"User-Agent": "TradingAgents/1.0", "Accept": "application/json"},
-    )
-    try:
-        with opener().open(request, timeout=REQUEST_TIMEOUT) as response:
-            rows = json.loads(response.read().decode("utf-8", "replace"))
-    except Exception as exc:                       # noqa: BLE001 — see docstring
-        logger.warning("Binance klines failed for %s: %s", pair, exc)
+    rows = _fetch_klines(query)
+    if rows is None:
+        logger.warning("Binance klines failed for %s: all hosts unreachable", pair)
         return []
 
     out: list[tuple[str, float]] = []
@@ -150,16 +169,9 @@ def daily_bars(symbol: str, start: str, end: str) -> pd.DataFrame:
         "endTime": _ms(end) + 86_400_000 - 1,
         "limit": 1000,
     })
-    request = urllib.request.Request(
-        f"{BINANCE_BASE}?{query}",
-        headers={"User-Agent": "TradingAgents/1.0", "Accept": "application/json"},
-    )
-
-    try:
-        with opener().open(request, timeout=REQUEST_TIMEOUT) as response:
-            rows = json.loads(response.read().decode("utf-8", "replace"))
-    except Exception as exc:  # noqa: BLE001 — the caller decides how to degrade
-        raise VendorUnavailableError(f"Binance klines unreachable for {pair}: {exc}") from exc
+    rows = _fetch_klines(query)
+    if rows is None:
+        raise VendorUnavailableError(f"Binance klines unreachable for {pair}: all hosts failed")
 
     bars: list[dict] = []
     for row in rows if isinstance(rows, list) else []:

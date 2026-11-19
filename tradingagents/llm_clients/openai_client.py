@@ -39,6 +39,45 @@ class NormalizedChatOpenAI(ChatOpenAI):
     def invoke(self, input, config=None, **kwargs):
         return normalize_content(super().invoke(input, config, **kwargs))
 
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        """LLM-call tracing: every call logs start, size, and duration.
+
+        Rationale (2026-11-19): two consecutive SNDK pre runs stalled 60+
+        minutes right after data prefetch with zero output — no way to tell
+        WHICH call hung. This trace makes every call's wall time visible in
+        daily.log / the test log, so a stall is attributable to a single
+        (model, prompt-size) pair instead of "the LLM phase".
+        """
+        import json as _json
+        import time as _time
+
+        t0 = _time.time()
+        chars = sum(len(str(getattr(m, "content", "") or "")) for m in messages)
+        tools = bool(kwargs.get("tools") or kwargs.get("bound_tools") or getattr(self, "bound_tools", None))
+        start_line = {
+            "event": "start", "model": self.model_name, "n_msgs": len(messages),
+            "prompt_chars": chars, "tools_bound": bool(tools),
+            "ts": _time.strftime("%H:%M:%S"),
+        }
+        print(f"[llm-call] {_json.dumps(start_line, ensure_ascii=False)}", flush=True)
+        try:
+            result = super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+        except Exception as exc:
+            fail_line = {"event": "fail", "model": self.model_name, "prompt_chars": chars,
+                         "elapsed": round(_time.time() - t0, 1), "error": f"{type(exc).__name__}: {exc}"[:200],
+                         "ts": _time.strftime("%H:%M:%S")}
+            print(f"[llm-call] {_json.dumps(fail_line, ensure_ascii=False)}", flush=True)
+            raise
+        dt = _time.time() - t0
+        usage = getattr(result, "llm_output", {}).get("token_usage", {}) or {}
+        done_line = {"event": "done", "model": self.model_name, "prompt_chars": chars,
+                     "elapsed": round(dt, 1),
+                     "out_tokens": usage.get("completion_tokens"),
+                     "reasoning": (usage.get("completion_tokens_details") or {}).get("reasoning_tokens"),
+                     "ts": _time.strftime("%H:%M:%S")}
+        print(f"[llm-call] {_json.dumps(done_line, ensure_ascii=False)}", flush=True)
+        return result
+
     def with_structured_output(self, schema, *, method=None, **kwargs):
         caps = get_capabilities(self.model_name)
         if caps.preferred_structured_method == "none":
@@ -340,6 +379,45 @@ def _is_native_openai_base_url(base_url: str | None) -> bool:
     return host == "api.openai.com" or host.endswith(".openai.com")
 
 
+# Default per-request wall time for OpenAI-compatible providers. Empirically the
+# slowest legitimate ark call (32K-token cap, reasoning on) lands ~340s, and a
+# 12K-token generation ~126s. 420s covers those; anything longer is a stall and
+# should fail fast so the SDK retry (fresh connection) can take over.
+_DEFAULT_REQUEST_TIMEOUT = 420
+
+
+def _default_http_client() -> Any:
+    """Build an httpx client that never reuses connections across calls.
+
+    Rationale (2026-11-19): two SNDK pre runs stalled 60+ minutes in the LLM
+    phase after ~10 fast, healthy calls. Tracing pinned it to a single call
+    hanging 265s into `OpenAITimeoutError` — while identical-size requests via
+    plain urllib (fresh connection each time) never reproduced. The difference
+    is httpx's connection pool: a keepalive connection the server has silently
+    half-closed (ark closes idle keeps) accepts the request but never returns
+    bytes, and the client waits out the full read timeout per retry attempt.
+
+    TA makes a handful of LLM calls per run, seconds-to-minutes apart, so the
+    TLS-handshake cost of `keepalive_expiry=0` is negligible next to a multi-
+    minute stall. Each call opens a fresh connection — the stale-pool failure
+    mode disappears entirely.
+    """
+    import httpx
+
+    return httpx.Client(
+        transport=httpx.HTTPTransport(
+            trust_env=True,        # honor HTTPS_PROXY/NO_PROXY exactly as before
+            verify=True,
+            retries=2,             # retry transient TCP connect failures
+            # httpx >=0.28: keepalive tuning lives in Limits. Zero keepalive
+            # slots = every response closes its connection, so no request ever
+            # reuses one the server may have silently half-closed.
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=0),
+        ),
+        timeout=httpx.Timeout(_DEFAULT_REQUEST_TIMEOUT, connect=10.0),
+    )
+
+
 class OpenAIClient(BaseLLMClient):
     """Client for OpenAI, Ollama, OpenRouter, and xAI providers.
 
@@ -420,6 +498,15 @@ class OpenAIClient(BaseLLMClient):
             if key == "reasoning_effort" and not _supports_reasoning_effort(self.model):
                 continue
             llm_kwargs[key] = self.kwargs[key]
+
+        # OpenAI-compatible defaults: fresh-connection http client + bounded
+        # request timeout (see _default_http_client rationale). Only injected
+        # when the user did not supply their own.
+        if spec is not None:
+            if "http_client" not in llm_kwargs:
+                llm_kwargs["http_client"] = _default_http_client()
+            if "timeout" not in llm_kwargs:
+                llm_kwargs["timeout"] = _DEFAULT_REQUEST_TIMEOUT
 
         # The subclass (provider quirks) comes from the registry spec.
         return chat_cls(**llm_kwargs)
